@@ -1,0 +1,13 @@
+/target
+**/*.rs.bk
+*.pdb
+*.profraw
+.probe/
+.DS_Store
+.idea/
+.vscode/
+
+# Notas internas de desarrollo: viven en el equipo, no en el repositorio.
+/AGENTS.md
+/docs/PLAN.md
+/docs/PARITY.md
