@@ -56,9 +56,7 @@ add weft-term tokio --features rt,sync,time,macros,io-util
 echo "== weft-config: TOML, temas, keybindings =="
 add weft-config serde --features derive
 add weft-config toml
-add weft-config directories
 add weft-config thiserror
-add weft-config tracing
 
 echo "== weft-store: redb (puro Rust, sin SQLite) =="
 add weft-store redb

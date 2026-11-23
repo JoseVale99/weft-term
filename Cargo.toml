@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/weft", "crates/weft-term"]
+members = ["crates/weft", "crates/weft-config", "crates/weft-term"]
 default-members = ["crates/weft", "crates/weft-term"]
 
 [workspace.package]
