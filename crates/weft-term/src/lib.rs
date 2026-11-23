@@ -6,6 +6,9 @@
 //! - [`vt`]: the escape-sequence interpreter;
 //! - [`grid`]: cells, cursor, scrollback and screen operations;
 //! - [`blocks`]: the block model (command, output, exit code);
+//! - [`fuzzy`]: subsequence matching for history search and the palette;
+//! - [`history`]: a bounded, deduplicated command history;
+//! - [`input`]: the multiline input editor;
 //! - [`pty`]: a running shell on a pseudo-terminal (Unix).
 //!
 //! Nothing here may depend on winit, wgpu or any renderer. If a change needs a
@@ -15,7 +18,10 @@
 #![warn(missing_debug_implementations)]
 
 pub mod blocks;
+pub mod fuzzy;
 pub mod grid;
+pub mod history;
+pub mod input;
 pub mod osc;
 pub mod vt;
 
@@ -28,5 +34,7 @@ pub mod sys;
 
 pub use blocks::{Block, BlockId, BlockState, Blocks};
 pub use grid::{Attrs, Cell, Color, Cursor, Grid, Pen, Sgr, Wide};
+pub use history::History;
+pub use input::{Completion, Editor};
 pub use osc::{Event, Parser};
 pub use vt::Terminal;

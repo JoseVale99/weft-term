@@ -8,6 +8,7 @@ description = "Terminal core for Weft: semantic-prompt parsing and the block mod
 publish = false
 
 [dependencies]
+unicode-segmentation = "1.13.3"
 
 [dev-dependencies]
 
