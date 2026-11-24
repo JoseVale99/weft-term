@@ -158,9 +158,12 @@ M3.
   dependencias (TLS) y hoy se rechaza con un mensaje explícito.
 - `weft workflow` lista y ejecuta comandos guardados con `{{parámetro}}`.
 - El front-end Unix tiene temas propios (`weft-dark`, `weft-light`), paleta de
-  comandos en F1, pestañas y splits apilados. Cada panel tiene su propio PTY y
-  su propio `Terminal`; el activo recibe la entrada y muestra el cursor. La
-  paleta crea, cambia y cierra pestañas y paneles, y alterna el tema.
-- Los splits en columnas, la ventana GPU y ConPTY siguen pendientes. La ventana
-  requiere red para `winit`/`wgpu`/`glyphon`; ConPTY requiere las dependencias
-  de Windows, y Windows sigue usando el shell de bloques.
+  comandos en F1, pestañas y splits apilados o en columnas. Cada pestaña
+  recuerda su orientación y puede alternarla; cada panel tiene su propio PTY y
+  su propio `Terminal`. El activo recibe la entrada y muestra el cursor. La
+  paleta crea, cambia y cierra pestañas y paneles, alterna la orientación y el
+  tema. Un split se rechaza si deja un panel con menos de 3 filas o 20 columnas.
+- Los layouts mixtos (árbol de splits), la ventana GPU y ConPTY siguen
+  pendientes. La ventana requiere red para `winit`/`wgpu`/`glyphon`; ConPTY
+  requiere las dependencias de Windows, y Windows sigue usando el shell de
+  bloques.
