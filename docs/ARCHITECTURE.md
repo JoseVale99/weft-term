@@ -5,9 +5,9 @@
 | Crate | Responsabilidad | No puede depender de |
 | --- | --- | --- |
 | `weft-term` | PTY, parser VT, grid, scrollback, bloques, sesión | UI, `winit`, `wgpu` |
-| `weft-config` | TOML, temas, atajos, valores por defecto, validación | UI |
-| `weft-store` | `redb`: bloques, historial, workflows, sesiones, migraciones | UI, `weft-term` |
-| `weft-agent` | Proveedores, streaming, herramientas, presupuesto de contexto | UI, `winit` |
+| `weft-config` | TOML, temas, workflows con parámetros, valores por defecto, validación | UI |
+| `weft-store` | Persistencia local: historial y sesiones en archivos atómicos (`redb` pendiente) | UI, `weft-term` |
+| `weft-agent` | Conversación, parser JSON, protocolo OpenAI/SSE, compuerta de aprobación | UI, `winit` |
 | `weft` | Ventana, render, layout, entrada, composición | — |
 | `xtask` | Tareas de build, test y paridad | — |
 
@@ -146,3 +146,16 @@ M3.
   en TOML ni en logs.
 - El agente recibe solo bloques recientes y la selección, con un presupuesto de
   tokens explícito y recorte determinista.
+
+## Estado implementado
+
+- `weft-store` persiste historial y sesiones con líneas escapadas y escritura
+  atómica. No usa base de datos todavía.
+- `weft-agent` implementa conversación acotada, parser JSON estricto, petición
+  OpenAI con streaming y lectura SSE, además de la compuerta de aprobación. Su
+  transporte HTTP plano vive en `weft`; HTTPS requiere una decisión de
+  dependencias (TLS) y hoy se rechaza con un mensaje explícito.
+- `weft workflow` lista y ejecuta comandos guardados con `{{parámetro}}`.
+- La ventana GPU, las pestañas, los splits y ConPTY siguen pendientes. La
+  primera requiere red para `winit`/`wgpu`/`glyphon`; ConPTY requiere las
+  dependencias de Windows.
