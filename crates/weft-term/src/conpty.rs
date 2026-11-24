@@ -149,7 +149,11 @@ mod tests {
             }
         }
         let output = String::from_utf8_lossy(&output).into_owned();
-        assert!(output.contains("conpty-ok"), "output was {output:?}");
+        assert!(
+            output.contains("conpty-ok"),
+            "output was {output:?} (child exit: {:?})",
+            session.try_wait().ok().flatten()
+        );
         let mut exit = None;
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
         while std::time::Instant::now() < deadline {

@@ -430,6 +430,10 @@ mod windows_glue {
     /// An open pseudo console. Closes itself on drop.
     pub struct Conpty {
         hpc: HPCON,
+        // The console keeps using the ends it was opened with until a client
+        // attaches, so they stay alive with it instead of being closed early.
+        input_read: StdHandle,
+        output_write: StdHandle,
     }
 
     impl std::fmt::Debug for Conpty {
@@ -464,13 +468,18 @@ mod windows_glue {
                     "CreatePseudoConsole failed with HRESULT {status:#x}"
                 )));
             }
-            // The console holds its ends; the host never touches them again.
-            // SAFETY: closing once, both were owned by us.
-            unsafe {
-                CloseHandle(input_read);
-                CloseHandle(output_write);
-            }
-            Ok((Self { hpc }, file_from(input_write), file_from(output_read)))
+            // The console may not have taken its ends over until a client
+            // attaches, so they live and die with it instead of being closed
+            // here: closing them early leaves the child writing to nothing.
+            Ok((
+                Self {
+                    hpc,
+                    input_read,
+                    output_write,
+                },
+                file_from(input_write),
+                file_from(output_read),
+            ))
         }
 
         /// Tells the console its new size.
@@ -614,8 +623,13 @@ mod windows_glue {
 
     impl Drop for Conpty {
         fn drop(&mut self) {
-            // SAFETY: the console is owned exactly once.
-            unsafe { ClosePseudoConsole(self.hpc) }
+            // SAFETY: the console and the ends it was opened with are owned
+            // exactly once, and the closed console no longer uses them.
+            unsafe {
+                ClosePseudoConsole(self.hpc);
+                CloseHandle(self.input_read);
+                CloseHandle(self.output_write);
+            }
         }
     }
 
