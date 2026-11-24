@@ -9,6 +9,7 @@
 //! - [`fuzzy`]: subsequence matching for history search and the palette;
 //! - [`history`]: a bounded, deduplicated command history;
 //! - [`input`]: the multiline input editor;
+//! - [`layout`]: row allocation for split panes;
 //! - [`pty`]: a running shell on a pseudo-terminal (Unix).
 //!
 //! Nothing here may depend on winit, wgpu or any renderer. If a change needs a
@@ -22,6 +23,7 @@ pub mod fuzzy;
 pub mod grid;
 pub mod history;
 pub mod input;
+pub mod layout;
 pub mod osc;
 pub mod vt;
 
@@ -36,5 +38,6 @@ pub use blocks::{Block, BlockId, BlockState, Blocks};
 pub use grid::{Attrs, Cell, Color, Cursor, Grid, Pen, Sgr, Wide};
 pub use history::History;
 pub use input::{Completion, Editor};
+pub use layout::heights;
 pub use osc::{Event, Parser};
 pub use vt::Terminal;

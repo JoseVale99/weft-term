@@ -10,15 +10,65 @@ use weft_term::grid::{Attrs, Color, Grid, Wide, char_width};
 
 use crate::theme::Theme;
 
-/// Renders the visible grid, the status bar and the cursor into `out`.
-pub fn frame(grid: &Grid, status: &str, theme: &Theme, out: &mut String) {
+/// One pane in a split layout.
+#[derive(Clone, Copy)]
+pub struct PaneView<'a> {
+    /// Screen model of this pane.
+    pub grid: &'a Grid,
+    /// Whether this pane owns the cursor and receives input.
+    pub active: bool,
+}
+
+/// Renders stacked panes, a separator between them and one status bar.
+///
+/// Panes are addressed with absolute cursor positions, so each one keeps its
+/// own scroll region and no pane can draw over the next.
+pub fn split(views: &[PaneView<'_>], status: &str, theme: &Theme, out: &mut String) {
     out.clear();
     out.push_str("\x1b[?2026h\x1b[H");
-    let cols = grid.cols();
-    let rows = grid.rows();
-    let mut current = Style::default();
+    let Some(first) = views.first() else {
+        out.push_str("\x1b[?25l\x1b[?2026l");
+        return;
+    };
+    let cols = first.grid.cols();
+    let mut top = 0;
+    let mut cursor = None;
+    for (index, view) in views.iter().enumerate() {
+        write_rows(view.grid, top, cols, theme, out);
+        if view.active {
+            let position = view.grid.cursor();
+            cursor = Some((
+                top + position.y + 1,
+                position.x + 1,
+                view.grid.cursor_visible,
+            ));
+        }
+        top += view.grid.rows();
+        if index + 1 < views.len() {
+            separate(top, cols, theme, out);
+            top += 1;
+        }
+    }
 
-    for y in 0..rows {
+    let (fr, fg, fb) = theme.foreground;
+    let (br, bg, bb) = theme.background;
+    let _ = write!(out, "\x1b[{};1H\x1b[0;38;2;{fr};{fg};{fb};48;2;{br};{bg};{bb}m", top + 1);
+    pad(out, status, cols);
+    out.push_str("\x1b[0m\x1b[J");
+
+    match cursor {
+        Some((row, column, true)) => {
+            let _ = write!(out, "\x1b[{row};{column}H\x1b[?25h");
+        }
+        _ => out.push_str("\x1b[?25l"),
+    }
+    out.push_str("\x1b[?2026l");
+}
+
+fn write_rows(grid: &Grid, top: usize, cols: usize, theme: &Theme, out: &mut String) {
+    for y in 0..grid.rows() {
+        let _ = write!(out, "\x1b[{};1H", top + y + 1);
+        let mut current = Style::default();
         for x in 0..cols {
             let cell = grid.cell(x, y);
             if cell.wide == Wide::Trailing {
@@ -35,29 +85,22 @@ pub fn frame(grid: &Grid, status: &str, theme: &Theme, out: &mut String) {
                 out.push(cell.ch);
             }
         }
-        // A row never inherits attributes from the previous one, and the status
-        // bar always starts on its own line.
-        out.push_str("\x1b[0m\r\n");
-        current = Style::default();
+        out.push_str("\x1b[0m");
     }
+}
 
-    // Status bar: theme colors make it readable in both palettes.
-    let (fr, fg, fb) = theme.foreground;
+fn separate(top: usize, cols: usize, theme: &Theme, out: &mut String) {
+    let (red, green, blue) = theme.palette[8];
     let (br, bg, bb) = theme.background;
     let _ = write!(
         out,
-        "\x1b[0;38;2;{fr};{fg};{fb};48;2;{br};{bg};{bb}m"
+        "\x1b[{};1H\x1b[0;38;2;{red};{green};{blue};48;2;{br};{bg};{bb}m",
+        top + 1
     );
-    pad(out, status, cols);
-    out.push_str("\x1b[0m\x1b[J");
-
-    if grid.cursor_visible {
-        let cursor = grid.cursor();
-        let _ = write!(out, "\x1b[{};{}H\x1b[?25h", cursor.y + 1, cursor.x + 1);
-    } else {
-        out.push_str("\x1b[?25l");
+    for _ in 0..cols {
+        out.push('─');
     }
-    out.push_str("\x1b[?2026l");
+    out.push_str("\x1b[0m");
 }
 
 /// Draws a command palette over the top-left corner of the frame.
