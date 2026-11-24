@@ -9,7 +9,6 @@ use std::env;
 use std::fs;
 use std::io::{self, Read, Write};
 use std::net::TcpStream;
-use std::path::Path;
 
 use weft_agent::{
     Conversation, Event, Guard, Proposal, Provider, Request, Role, StreamParser, ToolCall, parse,
@@ -76,67 +75,126 @@ fn chat(agent: &Agent, prompt: &str) -> io::Result<()> {
         return Ok(());
     }
     let provider = provider(agent).map_err(io::Error::other)?;
-    let mut conversation = Conversation::new(
-        "You are Weft's assistant. Answer in the user's language, be brief, and \
-         never claim to have run a command you did not run.",
-        20,
-    );
-    conversation.push(Role::User, prompt);
-    let request = Request::new(provider, conversation).map_err(io::Error::other)?;
-    if request.endpoint().starts_with("https://") {
+    if provider.endpoint().starts_with("https://") {
         eprintln!(
             "weft: HTTPS transport is not available in this build; point [agent] base_url to a local http:// server"
         );
         return Ok(());
     }
+    let mut conversation = Conversation::new(
+        "You are Weft's assistant. Answer in the user's language and be brief. \
+         Use read_file and list_dir to inspect the working directory before \
+         answering questions about the project. Shell commands are proposals \
+         that require the user's approval. Never invent tool output and never \
+         claim to have run a command you did not run.",
+        40,
+    );
+    conversation.push(Role::User, prompt);
 
-    let events = send(&request, api_key().as_deref())?;
-    let mut calls = Vec::new();
-    for event in events {
-        match event {
-            Event::Text(text) => {
-                print!("{text}");
-                io::stdout().flush()?;
+    // A bounded tool loop: request, run calls, return their output, request
+    // again. Without a bound a model that keeps proposing the same call could
+    // spin forever.
+    for _ in 0..4 {
+        let request =
+            Request::new(provider.clone(), conversation.clone()).map_err(io::Error::other)?;
+        let events = send(&request, api_key().as_deref())?;
+        let mut text = String::new();
+        let mut calls = Vec::new();
+        for event in events {
+            match event {
+                Event::Text(chunk) => {
+                    print!("{chunk}");
+                    io::stdout().flush()?;
+                    text.push_str(&chunk);
+                }
+                Event::ToolCall(call) => calls.push(call),
+                Event::Done => break,
             }
-            Event::ToolCall(call) => calls.push(call),
-            Event::Done => break,
         }
-    }
-    println!();
-    for call in &calls {
-        handle_call(agent, call)?;
+        println!();
+
+        if !text.is_empty() {
+            conversation.push(Role::Assistant, text);
+        }
+        if calls.is_empty() {
+            break;
+        }
+
+        let mut results = String::new();
+        for call in &calls {
+            let output = handle_call(agent, call)?;
+            println!("{output}");
+            results.push_str(&format!("### {}\n{output}\n", call.name));
+        }
+        conversation.push(
+            Role::User,
+            format!(
+                "Tool output:\n{results}\nContinue with the task. Do not repeat a \
+                 command that already ran."
+            ),
+        );
     }
     Ok(())
 }
 
-fn handle_call(agent: &Agent, call: &ToolCall) -> io::Result<()> {
-    let arguments = parse(&call.arguments).map_err(io::Error::other)?;
-    match call.name.as_str() {
-        "read_file" => {
-            let path = argument(&arguments, "path")?;
-            match weft_agent::resolve(&path) {
-                Ok(path) => match fs::read_to_string(&path) {
-                    Ok(text) => print_truncated(&text, 32 * 1024),
-                    Err(error) => println!("weft: read_file: {error}"),
-                },
-                Err(error) => println!("weft: read_file rejected: {error}"),
-            }
-        }
-        "list_dir" => {
-            let path = argument(&arguments, "path")?;
-            match weft_agent::resolve(&path) {
-                Ok(path) => list_dir(&path),
-                Err(error) => println!("weft: list_dir rejected: {error}"),
-            }
-        }
+fn handle_call(agent: &Agent, call: &ToolCall) -> io::Result<String> {
+    let arguments = match parse(&call.arguments) {
+        Ok(arguments) => arguments,
+        Err(error) => return Ok(format!("error: invalid tool arguments: {error}")),
+    };
+    let output = match call.name.as_str() {
+        "read_file" => match read_file(&arguments) {
+            Ok(text) => text,
+            Err(error) => format!("error: {error}"),
+        },
+        "list_dir" => match list_dir(&arguments) {
+            Ok(text) => text,
+            Err(error) => format!("error: {error}"),
+        },
         "propose_command" => {
-            let command = argument(&arguments, "command")?;
+            let command = match argument(&arguments, "command") {
+                Ok(command) => command,
+                Err(error) => return Ok(format!("error: {error}")),
+            };
             let reason = argument(&arguments, "reason").unwrap_or_default();
-            propose(agent, &command, &reason)?;
+            propose(agent, &command, &reason)?
         }
-        other => println!("weft: the model called unknown tool `{other}`"),
+        other => format!("error: unknown tool `{other}`"),
+    };
+    Ok(output)
+}
+
+fn read_file(arguments: &weft_agent::Value) -> io::Result<String> {
+    let path = argument(arguments, "path")?;
+    let path = weft_agent::resolve(&path)?;
+    let text = fs::read_to_string(&path)?;
+    Ok(truncate(&text, 32 * 1024))
+}
+
+fn list_dir(arguments: &weft_agent::Value) -> io::Result<String> {
+    let path = argument(arguments, "path")?;
+    let path = weft_agent::resolve(&path)?;
+    let mut entries: Vec<String> = fs::read_dir(&path)?
+        .flatten()
+        .map(|entry| {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if entry.path().is_dir() {
+                format!("{name}/")
+            } else {
+                name
+            }
+        })
+        .collect();
+    entries.sort_unstable();
+    let mut out = String::new();
+    for entry in entries.iter().take(200) {
+        out.push_str(entry);
+        out.push('\n');
     }
-    Ok(())
+    if entries.len() > 200 {
+        out.push_str(&format!("... {} more entries\n", entries.len() - 200));
+    }
+    Ok(out)
 }
 
 fn argument(arguments: &weft_agent::Value, name: &str) -> io::Result<String> {
@@ -147,47 +205,18 @@ fn argument(arguments: &weft_agent::Value, name: &str) -> io::Result<String> {
         .ok_or_else(|| io::Error::other(format!("tool call is missing `{name}`")))
 }
 
-fn list_dir(path: &Path) {
-    let mut entries: Vec<String> = match fs::read_dir(path) {
-        Ok(entries) => entries
-            .flatten()
-            .map(|entry| {
-                let name = entry.file_name().to_string_lossy().into_owned();
-                if entry.path().is_dir() {
-                    format!("{name}/")
-                } else {
-                    name
-                }
-            })
-            .collect(),
-        Err(error) => {
-            println!("weft: list_dir: {error}");
-            return;
-        }
-    };
-    entries.sort_unstable();
-    for entry in entries.iter().take(200) {
-        println!("{entry}");
-    }
-    if entries.len() > 200 {
-        println!("... {} more entries", entries.len() - 200);
-    }
-}
-
-fn print_truncated(text: &str, limit: usize) {
+fn truncate(text: &str, limit: usize) -> String {
     if text.len() <= limit {
-        println!("{text}");
-        return;
+        return text.to_owned();
     }
     let mut end = limit;
     while end > 0 && !text.is_char_boundary(end) {
         end -= 1;
     }
-    println!("{}", &text[..end]);
-    println!("... {} bytes omitted", text.len() - end);
+    format!("{}\n... {} bytes omitted", &text[..end], text.len() - end)
 }
 
-fn propose(agent: &Agent, command: &str, reason: &str) -> io::Result<()> {
+fn propose(agent: &Agent, command: &str, reason: &str) -> io::Result<String> {
     if !reason.is_empty() {
         println!("weft: {reason}");
     }
@@ -203,17 +232,17 @@ fn propose(agent: &Agent, command: &str, reason: &str) -> io::Result<()> {
     };
     let proposal = Proposal::new(command, reason);
     let guard = Guard::new(agent.auto_approve);
-    match guard.evaluate(&proposal, answer) {
+    Ok(match guard.evaluate(&proposal, answer) {
         weft_agent::Decision::Run => {
             let block = crate::repl::execute(command)?;
-            if block.code != 0 {
-                println!("weft: command exited with {}", block.code);
-            }
+            format!(
+                "command ran with exit code {} in {} ms",
+                block.code, block.elapsed_ms
+            )
         }
-        weft_agent::Decision::Rejected => println!("weft: command not run"),
-        weft_agent::Decision::NeedsApproval => println!("weft: waiting for approval"),
-    }
-    Ok(())
+        weft_agent::Decision::Rejected => "the user rejected the command".to_owned(),
+        weft_agent::Decision::NeedsApproval => "the command is waiting for approval".to_owned(),
+    })
 }
 
 fn api_key() -> Option<String> {
