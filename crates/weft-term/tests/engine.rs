@@ -3,6 +3,7 @@
 //! These run without a window and without a shell, which is what makes the
 //! renderer replaceable and the behavior reviewable.
 
+use unicode_segmentation as _;
 use weft_term::grid::{Color, Wide, char_width};
 use weft_term::vt::Terminal;
 

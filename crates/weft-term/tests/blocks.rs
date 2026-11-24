@@ -1,6 +1,7 @@
 //! Parity-style tests for the terminal core: they encode what the shell stream
 //! means, so a regression shows up as a diff in behaviour, not in appearance.
 
+use unicode_segmentation as _;
 use weft_term::{BlockState, Blocks, Event, Parser};
 
 /// Feeds `input` in `chunk`-sized pieces and returns every event.
