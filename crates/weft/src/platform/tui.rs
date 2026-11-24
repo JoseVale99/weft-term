@@ -13,7 +13,7 @@ use std::thread;
 use std::time::Duration;
 
 use weft_term::BlockState;
-use weft_term::layout::heights;
+use weft_term::layout::{Orientation, Span, spans};
 use weft_term::pty::Session;
 use weft_term::sys;
 use weft_term::vt::Terminal;
@@ -53,6 +53,7 @@ struct Tab {
     title: String,
     panes: Vec<Pane>,
     active: usize,
+    orientation: Orientation,
 }
 
 /// One entry in the command palette.
@@ -61,7 +62,9 @@ enum Command {
     NewTab,
     NextTab,
     CloseTab,
-    SplitPane,
+    SplitDown,
+    SplitRight,
+    ToggleSplit,
     NextPane,
     ClosePane,
     CycleTheme,
@@ -70,13 +73,15 @@ enum Command {
     Quit,
 }
 
-const PALETTE: [(&str, Command); 10] = [
+const PALETTE: [(&str, Command); 12] = [
     ("New tab", Command::NewTab),
     ("Next tab", Command::NextTab),
     ("Close tab", Command::CloseTab),
-    ("Split pane", Command::SplitPane),
+    ("Split down", Command::SplitDown),
+    ("Split right", Command::SplitRight),
     ("Next pane", Command::NextPane),
     ("Close pane", Command::ClosePane),
+    ("Toggle split layout", Command::ToggleSplit),
     ("Cycle theme (dark/light)", Command::CycleTheme),
     ("Clear screen", Command::ClearScreen),
     ("Reset terminal", Command::ResetTerminal),
@@ -153,6 +158,7 @@ pub fn run() -> io::Result<()> {
         title: shell_title(&shell),
         panes: vec![first],
         active: 0,
+        orientation: Orientation::Stacked,
     }];
     next_tab += 1;
     let mut active_tab = 0;
@@ -208,13 +214,33 @@ pub fn run() -> io::Result<()> {
                 window_title.clone_from(&tab.title);
                 set_title(&window_title)?;
             }
+            let slots = match tab.orientation {
+                Orientation::Stacked => spans(dimensions.1, tab.panes.len()),
+                Orientation::SideBySide => spans(dimensions.0, tab.panes.len()),
+            };
             let views: Vec<PaneView<'_>> = tab
                 .panes
                 .iter()
                 .enumerate()
-                .map(|(index, pane)| PaneView {
-                    grid: &pane.terminal.grid,
-                    active: index == tab.active,
+                .map(|(index, pane)| {
+                    let slot = slots.get(index).copied().unwrap_or(Span {
+                        start: 0,
+                        size: 0,
+                    });
+                    PaneView {
+                        grid: &pane.terminal.grid,
+                        active: index == tab.active,
+                        row: if matches!(tab.orientation, Orientation::Stacked) {
+                            slot.start
+                        } else {
+                            0
+                        },
+                        column: if matches!(tab.orientation, Orientation::SideBySide) {
+                            slot.start
+                        } else {
+                            0
+                        },
+                    }
                 })
                 .collect();
             let mut frame = String::with_capacity(
@@ -227,11 +253,12 @@ pub fn run() -> io::Result<()> {
                     active_tab,
                     tab.active,
                     tab.panes.len(),
+                    tab.orientation,
                 )
             } else {
                 std::mem::take(&mut notice)
             };
-            render::split(&views, &status, theme, &mut frame);
+            render::split(&views, tab.orientation, &status, theme, &mut frame);
             if let Some(open) = &palette {
                 let items: Vec<&str> = PALETTE.iter().map(|(label, _)| *label).collect();
                 render::palette(&items, open.selected, theme, dimensions.0, &mut frame);
@@ -355,6 +382,7 @@ fn apply(
                         title: shell_title(shell),
                         panes: vec![pane],
                         active: 0,
+                        orientation: Orientation::Stacked,
                     });
                     *active_tab = tabs.len() - 1;
                     *next_tab += 1;
@@ -374,23 +402,47 @@ fn apply(
                 *quit = true;
             }
         }
-        Command::SplitPane => {
+        Command::SplitDown | Command::SplitRight => {
+            let orientation = if matches!(command, Command::SplitDown) {
+                Orientation::Stacked
+            } else {
+                Orientation::SideBySide
+            };
             let tab = &mut tabs[*active_tab];
             let count = tab.panes.len() + 1;
-            if heights(dimensions.1, count).len() != count {
-                *notice = "not enough rows for another pane".to_owned();
+            if !fits(dimensions, count, orientation) {
+                *notice = format!(
+                    "not enough room for another pane to the {}",
+                    orientation.label()
+                );
                 return Ok(());
             }
             let cols = tab.panes[tab.active].terminal.grid.cols();
             let rows = tab.panes[tab.active].terminal.grid.rows();
             match spawn_pane(*next_pane, tab.id, shell, cols, rows, sender) {
                 Ok(pane) => {
+                    tab.orientation = orientation;
                     tab.panes.push(pane);
                     tab.active = tab.panes.len() - 1;
                     *next_pane += 1;
                     resize_tab(tab, dimensions);
                 }
                 Err(error) => *notice = format!("could not split pane: {error}"),
+            }
+        }
+        Command::ToggleSplit => {
+            let tab = &mut tabs[*active_tab];
+            if tab.panes.len() > 1 {
+                let target = tab.orientation.toggled();
+                if fits(dimensions, tab.panes.len(), target) {
+                    tab.orientation = target;
+                    resize_tab(tab, dimensions);
+                } else {
+                    *notice = format!(
+                        "not enough room for panes to the {}",
+                        target.label()
+                    );
+                }
             }
         }
         Command::NextPane => {
@@ -466,14 +518,39 @@ fn spawn_pane(
 }
 
 fn resize_tab(tab: &mut Tab, dimensions: (usize, usize)) {
-    let rows = heights(dimensions.1, tab.panes.len());
-    if rows.len() != tab.panes.len() {
-        return;
+    let count = tab.panes.len();
+    match tab.orientation {
+        Orientation::Stacked => {
+            let rows = spans(dimensions.1, count);
+            if rows.len() != count {
+                return;
+            }
+            for (pane, slot) in tab.panes.iter_mut().zip(rows) {
+                pane.terminal.resize(dimensions.0, slot.size);
+                let _ = pane.session.resize(dimensions.0, slot.size);
+            }
+        }
+        Orientation::SideBySide => {
+            let cols = spans(dimensions.0, count);
+            if cols.len() != count {
+                return;
+            }
+            for (pane, slot) in tab.panes.iter_mut().zip(cols) {
+                pane.terminal.resize(slot.size, dimensions.1);
+                let _ = pane.session.resize(slot.size, dimensions.1);
+            }
+        }
     }
-    for (pane, height) in tab.panes.iter_mut().zip(rows) {
-        pane.terminal.resize(dimensions.0, height);
-        let _ = pane.session.resize(dimensions.0, height);
-    }
+}
+
+/// Whether `count` panes fit with a usable size in the given orientation.
+fn fits(dimensions: (usize, usize), count: usize, orientation: Orientation) -> bool {
+    let (total, minimum) = match orientation {
+        Orientation::Stacked => (dimensions.1, 3),
+        Orientation::SideBySide => (dimensions.0, 20),
+    };
+    let slots = spans(total, count);
+    slots.len() == count && slots.iter().all(|slot| slot.size >= minimum)
 }
 
 /// Removes a whole tab. Returns true when none are left.
@@ -542,6 +619,7 @@ fn status_line(
     active_tab: usize,
     pane: usize,
     pane_count: usize,
+    orientation: Orientation,
 ) -> String {
     let cwd = terminal
         .blocks
@@ -571,10 +649,11 @@ fn status_line(
     let mut line = String::with_capacity(terminal.grid.cols());
     let _ = write!(
         line,
-        " {} | pane {}/{} | {cwd} | {state} | blocks {} | F1",
+        " {} | pane {}/{} {} | {cwd} | {state} | blocks {} | F1",
         tabs.join(" "),
         pane + 1,
         pane_count,
+        orientation.label(),
         terminal.blocks.len()
     );
     line

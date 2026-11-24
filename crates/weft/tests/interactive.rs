@@ -191,3 +191,63 @@ fn a_pane_splits_and_runs_a_command() {
     }
     assert!(exited, "split session did not exit; terminal said:\n{output}");
 }
+
+#[test]
+fn a_pane_splits_to_the_right_and_runs_a_command() {
+    let mut session =
+        Session::spawn(env!("CARGO_BIN_EXE_weft"), &[], 80, 24).expect("start weft");
+
+    let mut master = session.try_clone_master().expect("clone master");
+    let (sender, receiver) = mpsc::channel();
+    thread::spawn(move || {
+        let mut buffer = [0u8; 8192];
+        loop {
+            match master.read(&mut buffer) {
+                Ok(0) | Err(_) => return,
+                Ok(count) => {
+                    if sender.send(buffer[..count].to_vec()).is_err() {
+                        return;
+                    }
+                }
+            }
+        }
+    });
+
+    let mut output = String::new();
+    collect(&receiver, &mut output, Duration::from_secs(2));
+
+    // F1, then move from "New tab" down to "Split right" and choose it.
+    session.write(b"\x1bOP").expect("open palette");
+    thread::sleep(Duration::from_millis(300));
+    session
+        .write(b"\x1b[B\x1b[B\x1b[B\x1b[B\r")
+        .expect("choose split right");
+    thread::sleep(Duration::from_millis(600));
+
+    session
+        .write(b"printf '\\x35\\x35-right\\n'\r")
+        .expect("write command");
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let mut seen = false;
+    while Instant::now() < deadline && !seen {
+        collect(&receiver, &mut output, Duration::from_millis(200));
+        seen = output.contains("55-right");
+    }
+    assert!(seen, "command did not run in the right pane; terminal said:\n{output}");
+
+    thread::sleep(Duration::from_millis(500));
+    session.write(b"exit\r").expect("exit right pane");
+    thread::sleep(Duration::from_millis(600));
+    session.write(b"exit\r").expect("exit left pane");
+
+    let mut exited = false;
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while Instant::now() < deadline {
+        if matches!(session.try_wait(), Ok(Some(_))) {
+            exited = true;
+            break;
+        }
+        thread::sleep(Duration::from_millis(50));
+    }
+    assert!(exited, "split session did not exit; terminal said:\n{output}");
+}

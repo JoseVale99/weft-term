@@ -38,6 +38,6 @@ pub use blocks::{Block, BlockId, BlockState, Blocks};
 pub use grid::{Attrs, Cell, Color, Cursor, Grid, Pen, Sgr, Wide};
 pub use history::History;
 pub use input::{Completion, Editor};
-pub use layout::heights;
+pub use layout::{Orientation, Span, heights, spans};
 pub use osc::{Event, Parser};
 pub use vt::Terminal;

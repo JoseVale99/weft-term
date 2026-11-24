@@ -7,6 +7,7 @@
 use std::fmt::Write;
 
 use weft_term::grid::{Attrs, Color, Grid, Wide, char_width};
+use weft_term::layout::Orientation;
 
 use crate::theme::Theme;
 
@@ -17,43 +18,73 @@ pub struct PaneView<'a> {
     pub grid: &'a Grid,
     /// Whether this pane owns the cursor and receives input.
     pub active: bool,
+    /// First row of the pane, zero-based.
+    pub row: usize,
+    /// First column of the pane, zero-based.
+    pub column: usize,
 }
 
-/// Renders stacked panes, a separator between them and one status bar.
+/// Renders the panes of the active tab, separators between them and one status
+/// bar.
 ///
 /// Panes are addressed with absolute cursor positions, so each one keeps its
 /// own scroll region and no pane can draw over the next.
-pub fn split(views: &[PaneView<'_>], status: &str, theme: &Theme, out: &mut String) {
+pub fn split(
+    views: &[PaneView<'_>],
+    orientation: Orientation,
+    status: &str,
+    theme: &Theme,
+    out: &mut String,
+) {
     out.clear();
     out.push_str("\x1b[?2026h\x1b[H");
     let Some(first) = views.first() else {
         out.push_str("\x1b[?25l\x1b[?2026l");
         return;
     };
-    let cols = first.grid.cols();
-    let mut top = 0;
+    let width = views
+        .iter()
+        .map(|view| view.column + view.grid.cols())
+        .max()
+        .unwrap_or(first.grid.cols());
+    let height = views
+        .iter()
+        .map(|view| view.row + view.grid.rows())
+        .max()
+        .unwrap_or(first.grid.rows());
     let mut cursor = None;
-    for (index, view) in views.iter().enumerate() {
-        write_rows(view.grid, top, cols, theme, out);
+    for view in views {
+        write_rows(view, theme, out);
         if view.active {
             let position = view.grid.cursor();
             cursor = Some((
-                top + position.y + 1,
-                position.x + 1,
+                view.row + position.y + 1,
+                view.column + position.x + 1,
                 view.grid.cursor_visible,
             ));
         }
-        top += view.grid.rows();
-        if index + 1 < views.len() {
-            separate(top, cols, theme, out);
-            top += 1;
+    }
+    match orientation {
+        Orientation::Stacked => {
+            for view in views.iter().take(views.len().saturating_sub(1)) {
+                separate_horizontal(view.row + view.grid.rows(), width, theme, out);
+            }
+        }
+        Orientation::SideBySide => {
+            for view in views.iter().take(views.len().saturating_sub(1)) {
+                separate_vertical(view.column + view.grid.cols(), height, theme, out);
+            }
         }
     }
 
     let (fr, fg, fb) = theme.foreground;
     let (br, bg, bb) = theme.background;
-    let _ = write!(out, "\x1b[{};1H\x1b[0;38;2;{fr};{fg};{fb};48;2;{br};{bg};{bb}m", top + 1);
-    pad(out, status, cols);
+    let _ = write!(
+        out,
+        "\x1b[{};1H\x1b[0;38;2;{fr};{fg};{fb};48;2;{br};{bg};{bb}m",
+        height + 1
+    );
+    pad(out, status, width);
     out.push_str("\x1b[0m\x1b[J");
 
     match cursor {
@@ -65,12 +96,12 @@ pub fn split(views: &[PaneView<'_>], status: &str, theme: &Theme, out: &mut Stri
     out.push_str("\x1b[?2026l");
 }
 
-fn write_rows(grid: &Grid, top: usize, cols: usize, theme: &Theme, out: &mut String) {
-    for y in 0..grid.rows() {
-        let _ = write!(out, "\x1b[{};1H", top + y + 1);
+fn write_rows(view: &PaneView<'_>, theme: &Theme, out: &mut String) {
+    for y in 0..view.grid.rows() {
+        let _ = write!(out, "\x1b[{};{}H", view.row + y + 1, view.column + 1);
         let mut current = Style::default();
-        for x in 0..cols {
-            let cell = grid.cell(x, y);
+        for x in 0..view.grid.cols() {
+            let cell = view.grid.cell(x, y);
             if cell.wide == Wide::Trailing {
                 continue;
             }
@@ -89,71 +120,30 @@ fn write_rows(grid: &Grid, top: usize, cols: usize, theme: &Theme, out: &mut Str
     }
 }
 
-fn separate(top: usize, cols: usize, theme: &Theme, out: &mut String) {
+fn separator_style(theme: &Theme, out: &mut String) {
     let (red, green, blue) = theme.palette[8];
     let (br, bg, bb) = theme.background;
     let _ = write!(
         out,
-        "\x1b[{};1H\x1b[0;38;2;{red};{green};{blue};48;2;{br};{bg};{bb}m",
-        top + 1
+        "\x1b[0;38;2;{red};{green};{blue};48;2;{br};{bg};{bb}m"
     );
-    for _ in 0..cols {
+}
+
+fn separate_horizontal(top: usize, width: usize, theme: &Theme, out: &mut String) {
+    let _ = write!(out, "\x1b[{};1H", top + 1);
+    separator_style(theme, out);
+    for _ in 0..width {
         out.push('─');
     }
     out.push_str("\x1b[0m");
 }
 
-/// Draws a command palette over the top-left corner of the frame.
-///
-/// The frame has already positioned the cursor, so this function addresses rows
-/// absolutely and hides the cursor again when it finishes.
-pub fn palette(items: &[&str], selected: usize, theme: &Theme, cols: usize, out: &mut String) {
-    let content = items
-        .iter()
-        .map(|item| text_width(item))
-        .max()
-        .unwrap_or(0)
-        .max(12)
-        .min(cols.saturating_sub(4));
-    let width = content + 4;
-    let border = format!("+{}+", "-".repeat(width - 2));
-    let (fr, fg, fb) = theme.foreground;
-    let (br, bg, bb) = theme.background;
-    let normal = format!("\x1b[0;38;2;{fr};{fg};{fb};48;2;{br};{bg};{bb}m");
-    let active = format!("\x1b[0;38;2;{br};{bg};{bb};48;2;{fr};{fg};{fb}m");
-
-    let mut row = 1;
-    let _ = write!(out, "\x1b[{row};1H{normal}{border}");
-    for (index, item) in items.iter().enumerate() {
-        row += 1;
-        let marker = if index == selected { '>' } else { ' ' };
-        let prefix = format!("|{marker} ");
-        let room = width.saturating_sub(prefix.chars().count() + 1);
-        let body = pad_right(item, room);
-        let style = if index == selected { &active } else { &normal };
-        let _ = write!(out, "\x1b[{row};1H{style}{prefix}{body}|");
+fn separate_vertical(column: usize, height: usize, theme: &Theme, out: &mut String) {
+    separator_style(theme, out);
+    for row in 0..height {
+        let _ = write!(out, "\x1b[{};{}H│", row + 1, column + 1);
     }
-    row += 1;
-    let _ = write!(out, "\x1b[{row};1H{normal}{border}\x1b[0m\x1b[?25l");
-}
-
-fn text_width(text: &str) -> usize {
-    text.chars().map(char_width).sum()
-}
-
-fn pad_right(text: &str, width: usize) -> String {
-    let mut out = String::with_capacity(width);
-    let mut used = 0;
-    for c in text.chars() {
-        let advance = char_width(c);
-        if used + advance > width {
-            break;
-        }
-        out.push(c);
-        used += advance;
-    }
-    out.extend(std::iter::repeat_n(' ', width.saturating_sub(used)));
-    out
+    out.push_str("\x1b[0m");
 }
 
 fn pad(out: &mut String, text: &str, cols: usize) {
@@ -222,6 +212,59 @@ impl Style {
         push_color(out, self.bg, false);
         out.push('m');
     }
+}
+
+/// Draws a command palette over the top-left corner of the frame.
+///
+/// The frame has already positioned the cursor, so this function addresses rows
+/// absolutely and hides the cursor again when it finishes.
+pub fn palette(items: &[&str], selected: usize, theme: &Theme, cols: usize, out: &mut String) {
+    let content = items
+        .iter()
+        .map(|item| text_width(item))
+        .max()
+        .unwrap_or(0)
+        .max(12)
+        .min(cols.saturating_sub(4));
+    let width = content + 4;
+    let border = format!("+{}+", "-".repeat(width - 2));
+    let (fr, fg, fb) = theme.foreground;
+    let (br, bg, bb) = theme.background;
+    let normal = format!("\x1b[0;38;2;{fr};{fg};{fb};48;2;{br};{bg};{bb}m");
+    let active = format!("\x1b[0;38;2;{br};{bg};{bb};48;2;{fr};{fg};{fb}m");
+
+    let mut row = 1;
+    let _ = write!(out, "\x1b[{row};1H{normal}{border}");
+    for (index, item) in items.iter().enumerate() {
+        row += 1;
+        let marker = if index == selected { '>' } else { ' ' };
+        let prefix = format!("|{marker} ");
+        let room = width.saturating_sub(prefix.chars().count() + 1);
+        let body = pad_right(item, room);
+        let style = if index == selected { &active } else { &normal };
+        let _ = write!(out, "\x1b[{row};1H{style}{prefix}{body}|");
+    }
+    row += 1;
+    let _ = write!(out, "\x1b[{row};1H{normal}{border}\x1b[0m\x1b[?25l");
+}
+
+fn text_width(text: &str) -> usize {
+    text.chars().map(char_width).sum()
+}
+
+fn pad_right(text: &str, width: usize) -> String {
+    let mut out = String::with_capacity(width);
+    let mut used = 0;
+    for c in text.chars() {
+        let advance = char_width(c);
+        if used + advance > width {
+            break;
+        }
+        out.push(c);
+        used += advance;
+    }
+    out.extend(std::iter::repeat_n(' ', width.saturating_sub(used)));
+    out
 }
 
 fn resolve_color(color: Color, foreground: bool, theme: &Theme) -> Color {
