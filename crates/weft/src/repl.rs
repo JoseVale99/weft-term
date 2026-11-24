@@ -296,6 +296,11 @@ fn run_line(line: &str, history: &mut History, store: Option<&Store>) -> io::Res
 }
 
 /// Runs a single command line and prints its block footer.
+///
+/// Standard input is inherited on purpose: interactive commands (`cat`, `ssh`,
+/// pagers) need it while they run. The flip side is that keys typed during a
+/// command belong to the command, not to the next prompt. The full-screen TUI
+/// does not have this limitation because every pane owns its own PTY.
 pub fn execute(line: &str) -> io::Result<Block> {
     let started = Instant::now();
     let status = platform::command(line).status()?;
