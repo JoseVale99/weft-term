@@ -32,11 +32,6 @@ pub fn home() -> String {
     env::var("USERPROFILE").unwrap_or_else(|_| ".".to_owned())
 }
 
-/// Shell used by the full-screen terminal.
-pub fn default_shell() -> String {
-    env::var("COMSPEC").unwrap_or_else(|_| "cmd.exe".to_owned())
-}
-
 /// Width of the terminal; fixed until the console is wired.
 pub fn columns() -> usize {
     80
