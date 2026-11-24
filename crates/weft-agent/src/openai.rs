@@ -8,6 +8,7 @@ use std::fmt;
 
 use crate::json::{self, JsonError, Value};
 use crate::message::Conversation;
+use crate::tools::{self, ToolCall};
 
 /// Where to send the request.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -106,6 +107,7 @@ impl Request {
                 Value::String(self.provider.model.clone()),
             ),
             ("messages".to_owned(), Value::Array(messages)),
+            ("tools".to_owned(), tools_value()),
             ("stream".to_owned(), Value::Bool(true)),
         ])
         .to_json()
@@ -117,6 +119,8 @@ impl Request {
 pub enum Event {
     /// A piece of assistant text.
     Text(String),
+    /// A fully assembled tool call.
+    ToolCall(ToolCall),
     /// The provider finished the response.
     Done,
 }
@@ -125,6 +129,7 @@ pub enum Event {
 #[derive(Debug, Default)]
 pub struct StreamParser {
     buffer: String,
+    calls: Vec<ToolCall>,
 }
 
 impl StreamParser {
@@ -154,10 +159,11 @@ impl StreamParser {
         if !line.is_empty() {
             self.line(line.trim_end(), &mut events)?;
         }
+        self.take_calls(&mut events);
         Ok(events)
     }
 
-    fn line(&self, line: &str, events: &mut Vec<Event>) -> Result<(), JsonError> {
+    fn line(&mut self, line: &str, events: &mut Vec<Event>) -> Result<(), JsonError> {
         let Some(data) = line.strip_prefix("data:") else {
             // Comments, ids and event names carry nothing we need.
             return Ok(());
@@ -167,22 +173,85 @@ impl StreamParser {
             return Ok(());
         }
         if data == "[DONE]" {
+            self.take_calls(events);
             events.push(Event::Done);
             return Ok(());
         }
         let value = json::parse(data)?;
-        if let Some(text) = value
+        let Some(delta) = value
             .get("choices")
             .and_then(|choices| choices.index(0))
             .and_then(|choice| choice.get("delta"))
-            .and_then(|delta| delta.get("content"))
-            .and_then(Value::as_str)
+        else {
+            return Ok(());
+        };
+        if let Some(text) = delta.get("content").and_then(Value::as_str)
             && !text.is_empty()
         {
             events.push(Event::Text(text.to_owned()));
         }
+        self.merge_tool_calls(delta);
         Ok(())
     }
+
+    fn merge_tool_calls(&mut self, delta: &Value) {
+        let Some(Value::Array(calls)) = delta.get("tool_calls") else {
+            return;
+        };
+        for item in calls {
+            let index = item
+                .get("index")
+                .and_then(Value::as_f64)
+                .map_or(0, |index| index.max(0.0) as usize);
+            while self.calls.len() <= index {
+                self.calls.push(ToolCall::default());
+            }
+            let call = &mut self.calls[index];
+            if let Some(id) = item.get("id").and_then(Value::as_str) {
+                call.id = id.to_owned();
+            }
+            if let Some(function) = item.get("function") {
+                if let Some(name) = function.get("name").and_then(Value::as_str) {
+                    call.name = name.to_owned();
+                }
+                if let Some(arguments) = function.get("arguments").and_then(Value::as_str) {
+                    call.arguments.push_str(arguments);
+                }
+            }
+        }
+    }
+
+    fn take_calls(&mut self, events: &mut Vec<Event>) {
+        for call in self.calls.drain(..) {
+            if !call.name.is_empty() {
+                events.push(Event::ToolCall(call));
+            }
+        }
+    }
+}
+
+fn tools_value() -> Value {
+    Value::Array(
+        tools::specs()
+            .into_iter()
+            .map(|spec| {
+                Value::Object(vec![
+                    ("type".to_owned(), Value::String("function".to_owned())),
+                    (
+                        "function".to_owned(),
+                        Value::Object(vec![
+                            ("name".to_owned(), Value::String(spec.name.to_owned())),
+                            (
+                                "description".to_owned(),
+                                Value::String(spec.description.to_owned()),
+                            ),
+                            ("parameters".to_owned(), spec.parameters),
+                        ]),
+                    ),
+                ])
+            })
+            .collect(),
+    )
 }
 
 #[cfg(test)]
@@ -282,6 +351,37 @@ mod tests {
             .push(": comment\nevent: message\ndata: [DONE]\n")
             .unwrap();
         assert_eq!(events, [Event::Done]);
+    }
+
+    #[test]
+    fn the_body_offers_the_tools() {
+        let body = request().body();
+        assert!(body.contains(r#""tools""#));
+        assert!(body.contains("read_file"));
+        assert!(body.contains("list_dir"));
+        assert!(body.contains("propose_command"));
+    }
+
+    #[test]
+    fn tool_calls_are_assembled_from_fragments() {
+        let mut parser = StreamParser::new();
+        let first = r#"data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","function":{"name":"read_file","arguments":"{\"pa"}}]}}]}"#;
+        let second = r#"data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"th\":\"Cargo.toml\"}"}}]}}]}"#;
+        assert!(parser.push(&format!("{first}\n")).unwrap().is_empty());
+        assert!(parser.push(&format!("{second}\n")).unwrap().is_empty());
+
+        let events = parser.push("data: [DONE]\n").unwrap();
+        assert_eq!(
+            events,
+            [
+                Event::ToolCall(ToolCall {
+                    id: "call_1".to_owned(),
+                    name: "read_file".to_owned(),
+                    arguments: r#"{"path":"Cargo.toml"}"#.to_owned(),
+                }),
+                Event::Done,
+            ]
+        );
     }
 
     #[test]
