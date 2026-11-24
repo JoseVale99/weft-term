@@ -9,6 +9,7 @@
 //! - `weft integration` print the shell integration script for bash/zsh/fish
 //! - `weft help`        command list
 
+mod agent;
 mod keys;
 mod platform;
 mod render;
@@ -34,6 +35,7 @@ fn main() -> ExitCode {
         Some("history") => history(&args[1..]),
         Some("sessions") => sessions(&args[1..]),
         Some("workflow" | "workflows") => workflow(&args[1..]),
+        Some("agent") => agent::run(&args[1..]),
         Some("help" | "--help" | "-h") => {
             print_help();
             Ok(())
@@ -209,6 +211,8 @@ Usage:
   weft sessions [clear] list or clear the session log
   weft workflow list   list saved workflows
   weft workflow run <name> [key=value ...]  run a saved workflow
+  weft agent check     validate the assistant configuration
+  weft agent chat <p>  send one prompt over plain HTTP (streaming)
   weft help             this message
   weft --version        version
 
@@ -216,6 +220,7 @@ Environment:
   SHELL                 shell started by the interactive terminal
   WEFT_DATA_DIR         override the directory for history and sessions
   WEFT_CONFIG           configuration file (default: data dir/config.toml)
+  OPENAI_API_KEY        bearer token for the assistant (or WEFT_API_KEY)
   RUST_LOG              log filter for internal diagnostics"
     );
 }

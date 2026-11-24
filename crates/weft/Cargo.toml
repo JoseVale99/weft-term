@@ -12,6 +12,7 @@ name = "weft"
 path = "src/main.rs"
 
 [dependencies]
+weft-agent = { path = "../weft-agent" }
 weft-config = { path = "../weft-config" }
 weft-store = { path = "../weft-store" }
 weft-term = { path = "../weft-term" }
