@@ -14,7 +14,9 @@
 mod approval;
 mod json;
 mod message;
+mod openai;
 
 pub use approval::{Decision, Guard, Proposal};
-pub use json::{JsonError, Value, parse};
+pub use json::{JsonError, Value, parse, quote};
 pub use message::{Conversation, Message, Role};
+pub use openai::{Event, Provider, Request, RequestError, StreamParser};
