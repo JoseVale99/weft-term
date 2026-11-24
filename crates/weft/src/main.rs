@@ -9,11 +9,10 @@
 //! - `weft integration` print the shell integration script for bash/zsh/fish
 //! - `weft help`        command list
 
+mod keys;
+mod platform;
 mod render;
 mod repl;
-
-#[cfg(unix)]
-mod tui;
 
 use std::env;
 use std::io;
@@ -53,13 +52,7 @@ fn main() -> ExitCode {
 }
 
 fn interactive() -> io::Result<()> {
-    #[cfg(unix)]
-    {
-        if weft_term::sys::is_tty(0) {
-            return tui::run();
-        }
-    }
-    repl::run()
+    platform::interactive()
 }
 
 fn run_command(args: &[String]) -> io::Result<()> {
