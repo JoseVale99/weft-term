@@ -83,30 +83,25 @@ impl Decoder {
             let first = *self.buffer.first()?;
             let key = match first {
                 0x1b => self.escape()??,
-                0x7f | 0x08 => Key::Backspace,
-                b'\r' | b'\n' => Key::Enter,
-                b'\t' => Key::Tab,
-                0x03 => Key::CtrlC,
-                0x04 => Key::CtrlD,
-                0x0b => Key::CtrlK,
-                0x0c => Key::CtrlL,
-                0x15 => Key::CtrlU,
-                0x17 => Key::CtrlW,
-                0x19 => Key::CtrlY,
-                0x10 => Key::CtrlP,
-                0x0e => Key::CtrlN,
-                0x12 => Key::CtrlR,
-                byte if byte < 0x20 => {
+                byte => match single_byte_key(byte) {
+                    // Mapped key: consume its one byte.
+                    Some(key) => {
+                        self.buffer.remove(0);
+                        return Some(key);
+                    }
                     // Unknown control character: drop it and keep decoding.
-                    self.buffer.remove(0);
-                    continue;
-                }
-                _ => match self.utf8() {
-                    // Incomplete sequence: wait for the next read.
-                    None => return None,
-                    // Invalid byte: already dropped, keep decoding.
-                    Some(None) => continue,
-                    Some(Some(key)) => key,
+                    None if byte < 0x20 => {
+                        self.buffer.remove(0);
+                        continue;
+                    }
+                    // Everything else starts a UTF-8 sequence.
+                    None => match self.utf8() {
+                        // Incomplete sequence: wait for the next read.
+                        None => return None,
+                        // Invalid byte: already dropped, keep decoding.
+                        Some(None) => continue,
+                        Some(Some(key)) => key,
+                    },
                 },
             };
             return Some(key);
@@ -181,6 +176,26 @@ impl Decoder {
             }
         }
     }
+}
+
+/// The key for a one-byte input, or `None` when the byte needs more context.
+fn single_byte_key(byte: u8) -> Option<Key> {
+    Some(match byte {
+        0x7f | 0x08 => Key::Backspace,
+        b'\r' | b'\n' => Key::Enter,
+        b'\t' => Key::Tab,
+        0x03 => Key::CtrlC,
+        0x04 => Key::CtrlD,
+        0x0b => Key::CtrlK,
+        0x0c => Key::CtrlL,
+        0x15 => Key::CtrlU,
+        0x17 => Key::CtrlW,
+        0x19 => Key::CtrlY,
+        0x10 => Key::CtrlP,
+        0x0e => Key::CtrlN,
+        0x12 => Key::CtrlR,
+        _ => return None,
+    })
 }
 
 fn csi(params: &str, final_byte: u8) -> Key {
