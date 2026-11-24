@@ -60,6 +60,59 @@ pub fn frame(grid: &Grid, status: &str, theme: &Theme, out: &mut String) {
     out.push_str("\x1b[?2026l");
 }
 
+/// Draws a command palette over the top-left corner of the frame.
+///
+/// The frame has already positioned the cursor, so this function addresses rows
+/// absolutely and hides the cursor again when it finishes.
+pub fn palette(items: &[&str], selected: usize, theme: &Theme, cols: usize, out: &mut String) {
+    let content = items
+        .iter()
+        .map(|item| text_width(item))
+        .max()
+        .unwrap_or(0)
+        .max(12)
+        .min(cols.saturating_sub(4));
+    let width = content + 4;
+    let border = format!("+{}+", "-".repeat(width - 2));
+    let (fr, fg, fb) = theme.foreground;
+    let (br, bg, bb) = theme.background;
+    let normal = format!("\x1b[0;38;2;{fr};{fg};{fb};48;2;{br};{bg};{bb}m");
+    let active = format!("\x1b[0;38;2;{br};{bg};{bb};48;2;{fr};{fg};{fb}m");
+
+    let mut row = 1;
+    let _ = write!(out, "\x1b[{row};1H{normal}{border}");
+    for (index, item) in items.iter().enumerate() {
+        row += 1;
+        let marker = if index == selected { '>' } else { ' ' };
+        let prefix = format!("|{marker} ");
+        let room = width.saturating_sub(prefix.chars().count() + 1);
+        let body = pad_right(item, room);
+        let style = if index == selected { &active } else { &normal };
+        let _ = write!(out, "\x1b[{row};1H{style}{prefix}{body}|");
+    }
+    row += 1;
+    let _ = write!(out, "\x1b[{row};1H{normal}{border}\x1b[0m\x1b[?25l");
+}
+
+fn text_width(text: &str) -> usize {
+    text.chars().map(char_width).sum()
+}
+
+fn pad_right(text: &str, width: usize) -> String {
+    let mut out = String::with_capacity(width);
+    let mut used = 0;
+    for c in text.chars() {
+        let advance = char_width(c);
+        if used + advance > width {
+            break;
+        }
+        out.push(c);
+        used += advance;
+    }
+    out.extend(std::iter::repeat_n(' ', width.saturating_sub(used)));
+    out
+}
+
 fn pad(out: &mut String, text: &str, cols: usize) {
     let mut width = 0;
     for ch in text.chars() {

@@ -15,7 +15,9 @@ use weft_term::pty::Session;
 use weft_term::sys;
 use weft_term::vt::Terminal;
 
+use crate::keys::{Decoder, Key};
 use crate::render;
+use crate::theme::{self, Theme};
 
 const READ_BUFFER: usize = 16 * 1024;
 const STATUS_HEIGHT: usize = 1;
@@ -29,10 +31,72 @@ enum Message {
     Closed,
 }
 
+/// One entry in the command palette.
+#[derive(Clone, Copy)]
+enum Command {
+    CycleTheme,
+    ClearScreen,
+    ResetTerminal,
+    Quit,
+}
+
+const PALETTE: [(&str, Command); 4] = [
+    ("Cycle theme (dark/light)", Command::CycleTheme),
+    ("Clear screen", Command::ClearScreen),
+    ("Reset terminal", Command::ResetTerminal),
+    ("Quit weft", Command::Quit),
+];
+
+struct Palette {
+    selected: usize,
+    decoder: Decoder,
+}
+
+enum PaletteEvent {
+    Moved,
+    Close,
+    Choose(Command),
+}
+
+impl Palette {
+    fn new() -> Self {
+        Self {
+            selected: 0,
+            decoder: Decoder::new(),
+        }
+    }
+
+    /// Decodes only palette keys and ignores everything else.
+    fn feed(&mut self, bytes: &[u8]) -> Option<PaletteEvent> {
+        self.decoder.push(bytes);
+        while let Some(key) = self.decoder.next() {
+            match key {
+                Key::Up | Key::CtrlP => {
+                    self.selected = self.selected.saturating_sub(1);
+                    return Some(PaletteEvent::Moved);
+                }
+                Key::Down | Key::CtrlN => {
+                    self.selected = (self.selected + 1).min(PALETTE.len() - 1);
+                    return Some(PaletteEvent::Moved);
+                }
+                Key::Enter => return Some(PaletteEvent::Choose(PALETTE[self.selected].1)),
+                Key::Esc | Key::CtrlC => return Some(PaletteEvent::Close),
+                _ => {}
+            }
+        }
+        None
+    }
+}
+
+fn is_palette_key(bytes: &[u8]) -> bool {
+    // F1 is unambiguous in raw mode and shells do not need it to edit a line.
+    bytes == b"\x1bOP" || bytes == b"\x1b[11~"
+}
+
 /// Runs the interactive terminal until the shell exits.
 pub fn run() -> io::Result<()> {
     let config = weft_config::Config::load(crate::config_path()).unwrap_or_default();
-    let theme = crate::theme::resolve(&config.terminal.theme);
+    let mut theme: &Theme = theme::resolve(&config.terminal.theme);
     let shell = config
         .terminal
         .shell
@@ -97,6 +161,8 @@ pub fn run() -> io::Result<()> {
     enter_screen()?;
     let mut dirty = true;
     let mut title = String::new();
+    let mut palette: Option<Palette> = None;
+    let mut quit = false;
     loop {
         if dirty {
             if terminal.grid.title != title {
@@ -107,6 +173,16 @@ pub fn run() -> io::Result<()> {
                 String::with_capacity(terminal.grid.cols() * (terminal.grid.rows() + 1) * 4);
             let status = status_line(&terminal, terminal.grid.cols());
             render::frame(&terminal.grid, &status, theme, &mut frame);
+            if let Some(open) = &palette {
+                let labels: Vec<&str> = PALETTE.iter().map(|(label, _)| *label).collect();
+                render::palette(
+                    &labels,
+                    open.selected,
+                    theme,
+                    terminal.grid.cols(),
+                    &mut frame,
+                );
+            }
             let mut stdout = io::stdout();
             stdout.write_all(frame.as_bytes())?;
             stdout.flush()?;
@@ -115,9 +191,37 @@ pub fn run() -> io::Result<()> {
 
         match receiver.recv_timeout(Duration::from_millis(50)) {
             Ok(Message::Input(bytes)) => {
-                // The shell owns its line editor, so input is forwarded intact,
-                // escape sequences included.
-                session.write(&bytes)?;
+                if let Some(open) = palette.as_mut() {
+                    match open.feed(&bytes) {
+                        Some(PaletteEvent::Choose(command)) => {
+                            palette = None;
+                            match command {
+                                Command::CycleTheme => {
+                                    theme = if theme.name == theme::LIGHT.name {
+                                        &theme::DARK
+                                    } else {
+                                        &theme::LIGHT
+                                    };
+                                }
+                                Command::ClearScreen => {
+                                    let _ = terminal.feed(b"\x1b[2J\x1b[H");
+                                }
+                                Command::ResetTerminal => {
+                                    let _ = terminal.feed(b"\x1bc");
+                                }
+                                Command::Quit => quit = true,
+                            }
+                        }
+                        Some(PaletteEvent::Close) => palette = None,
+                        Some(PaletteEvent::Moved) | None => {}
+                    }
+                } else if is_palette_key(&bytes) {
+                    palette = Some(Palette::new());
+                } else {
+                    // The shell owns its line editor, so input is forwarded intact,
+                    // escape sequences included.
+                    session.write(&bytes)?;
+                }
                 dirty = true;
             }
             Ok(Message::Output(bytes)) => {
@@ -142,6 +246,10 @@ pub fn run() -> io::Result<()> {
                 }
             }
             Err(RecvTimeoutError::Disconnected) => break,
+        }
+
+        if quit {
+            break;
         }
     }
 
