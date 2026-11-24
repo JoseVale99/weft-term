@@ -8,8 +8,10 @@ use std::fmt::Write;
 
 use weft_term::grid::{Attrs, Color, Grid, Wide, char_width};
 
+use crate::theme::Theme;
+
 /// Renders the visible grid, the status bar and the cursor into `out`.
-pub fn frame(grid: &Grid, status: &str, out: &mut String) {
+pub fn frame(grid: &Grid, status: &str, theme: &Theme, out: &mut String) {
     out.clear();
     out.push_str("\x1b[?2026h\x1b[H");
     let cols = grid.cols();
@@ -22,7 +24,7 @@ pub fn frame(grid: &Grid, status: &str, out: &mut String) {
             if cell.wide == Wide::Trailing {
                 continue;
             }
-            let style = Style::of(cell.fg, cell.bg, cell.attrs);
+            let style = Style::of(cell.fg, cell.bg, cell.attrs, theme);
             if style != current {
                 style.write_sgr(out);
                 current = style;
@@ -39,8 +41,13 @@ pub fn frame(grid: &Grid, status: &str, out: &mut String) {
         current = Style::default();
     }
 
-    // Status bar: reverse video is available on every terminal worth targeting.
-    out.push_str("\x1b[0;7m");
+    // Status bar: theme colors make it readable in both palettes.
+    let (fr, fg, fb) = theme.foreground;
+    let (br, bg, bb) = theme.background;
+    let _ = write!(
+        out,
+        "\x1b[0;38;2;{fr};{fg};{fb};48;2;{br};{bg};{bb}m"
+    );
     pad(out, status, cols);
     out.push_str("\x1b[0m\x1b[J");
 
@@ -86,9 +93,13 @@ impl Default for Style {
 }
 
 impl Style {
-    fn of(fg: Color, bg: Color, attrs: Attrs) -> Self {
+    fn of(fg: Color, bg: Color, attrs: Attrs, theme: &Theme) -> Self {
         let (fg, bg) = if attrs.reverse { (bg, fg) } else { (fg, bg) };
-        Self { fg, bg, attrs }
+        Self {
+            fg: resolve_color(fg, true, theme),
+            bg: resolve_color(bg, false, theme),
+            attrs,
+        }
     }
 
     fn write_sgr(&self, out: &mut String) {
@@ -114,6 +125,24 @@ impl Style {
         push_color(out, self.fg, true);
         push_color(out, self.bg, false);
         out.push('m');
+    }
+}
+
+fn resolve_color(color: Color, foreground: bool, theme: &Theme) -> Color {
+    match color {
+        Color::Default => {
+            let (red, green, blue) = if foreground {
+                theme.foreground
+            } else {
+                theme.background
+            };
+            Color::Rgb(red, green, blue)
+        }
+        Color::Indexed(index) if index < 16 => {
+            let (red, green, blue) = theme.palette[usize::from(index)];
+            Color::Rgb(red, green, blue)
+        }
+        other => other,
     }
 }
 

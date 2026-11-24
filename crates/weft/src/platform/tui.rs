@@ -31,7 +31,13 @@ enum Message {
 
 /// Runs the interactive terminal until the shell exits.
 pub fn run() -> io::Result<()> {
-    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_owned());
+    let config = weft_config::Config::load(crate::config_path()).unwrap_or_default();
+    let theme = crate::theme::resolve(&config.terminal.theme);
+    let shell = config
+        .terminal
+        .shell
+        .filter(|shell| !shell.trim().is_empty())
+        .unwrap_or_else(crate::platform::default_shell);
     let (cols, rows) = sys::window_size(0).unwrap_or((80, 24));
     let shell_rows = rows.saturating_sub(STATUS_HEIGHT).max(1);
 
@@ -100,7 +106,7 @@ pub fn run() -> io::Result<()> {
             let mut frame =
                 String::with_capacity(terminal.grid.cols() * (terminal.grid.rows() + 1) * 4);
             let status = status_line(&terminal, terminal.grid.cols());
-            render::frame(&terminal.grid, &status, &mut frame);
+            render::frame(&terminal.grid, &status, theme, &mut frame);
             let mut stdout = io::stdout();
             stdout.write_all(frame.as_bytes())?;
             stdout.flush()?;

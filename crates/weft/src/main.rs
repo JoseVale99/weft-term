@@ -14,6 +14,7 @@ mod keys;
 mod platform;
 mod render;
 mod repl;
+mod theme;
 
 use std::env;
 use std::io;
@@ -36,6 +37,7 @@ fn main() -> ExitCode {
         Some("sessions") => sessions(&args[1..]),
         Some("workflow" | "workflows") => workflow(&args[1..]),
         Some("agent") => agent::run(&args[1..]),
+        Some("theme" | "themes") => themes(),
         Some("help" | "--help" | "-h") => {
             print_help();
             Ok(())
@@ -158,6 +160,22 @@ fn workflow(args: &[String]) -> io::Result<()> {
     Ok(())
 }
 
+fn themes() -> io::Result<()> {
+    let config = Config::load(config_path()).map_err(io::Error::other)?;
+    let current = crate::theme::resolve(&config.terminal.theme).name;
+    for name in crate::theme::names() {
+        let theme = crate::theme::resolve(name);
+        let marker = if theme.name == current { "*" } else { " " };
+        let (fr, fg, fb) = theme.foreground;
+        let (br, bg, bb) = theme.background;
+        println!(
+            "{marker} {:<12} fg #{fr:02x}{fg:02x}{fb:02x} bg #{br:02x}{bg:02x}{bb:02x}",
+            theme.name
+        );
+    }
+    Ok(())
+}
+
 fn history(args: &[String]) -> io::Result<()> {
     let store = Store::open_default()?;
     match args.first().map(String::as_str) {
@@ -213,6 +231,7 @@ Usage:
   weft workflow run <name> [key=value ...]  run a saved workflow
   weft agent check     validate the assistant configuration
   weft agent chat <p>  send one prompt over plain HTTP (streaming)
+  weft theme           list built-in themes and the active one
   weft help             this message
   weft --version        version
 
