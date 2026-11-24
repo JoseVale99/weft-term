@@ -168,9 +168,11 @@ M3.
   pane y Shrink pane. Cada split guarda un porcentaje (50/50 inicial, entre 10 y
   90). Cerrar un panel promueve a su hermano. Un split se rechaza si deja un
   panel con menos de 3 filas o 20 columnas.
-- La ventana GPU y ConPTY siguen pendientes. La ventana requiere red para
-  `winit`/`wgpu`/`glyphon`; ConPTY requiere las dependencias de Windows, y
-  Windows sigue usando el shell de bloques.
+- En Windows el front-end completo funciona sobre ConPTY (FFI propia a
+  `kernel32` sin dependencias externas): modo raw y VT por consola, sesión
+  spawn/read/write/resize/kill en `weft-term::conpty` y el mismo TUI de Unix.
+  El test de ConPTY corre en el CI de Windows; en Unix el código es inerte.
+- La ventana GPU sigue pendiente y requiere red para `winit`/`wgpu`/`glyphon`.
 
 ## Calidad
 

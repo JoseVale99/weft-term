@@ -10,7 +10,8 @@
 //! - [`history`]: a bounded, deduplicated command history;
 //! - [`input`]: the multiline input editor;
 //! - [`layout`]: row allocation for split panes;
-//! - [`pty`]: a running shell on a pseudo-terminal (Unix).
+//! - [`pty`]: a running shell on a pseudo-terminal (Unix);
+//! - [`conpty`]: the same session API over Windows ConPTY.
 //!
 //! Nothing here may depend on winit, wgpu or any renderer. If a change needs a
 //! window to be tested, it belongs in the `weft` binary crate.
@@ -27,12 +28,22 @@ pub mod layout;
 pub mod osc;
 pub mod vt;
 
+#[cfg(windows)]
+#[allow(unsafe_code)]
+pub mod conpty;
 #[cfg(unix)]
 #[allow(unsafe_code)]
+#[path = "pty.rs"]
 pub mod pty;
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 #[allow(unsafe_code)]
 pub mod sys;
+
+#[cfg(windows)]
+pub use conpty::Session;
+/// The session API of the platform: PTY on Unix, ConPTY on Windows.
+#[cfg(unix)]
+pub use pty::Session;
 
 pub use blocks::{Block, BlockId, BlockState, Blocks};
 pub use grid::{Attrs, Cell, Color, Cursor, Grid, Pen, Sgr, Wide};

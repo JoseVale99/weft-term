@@ -12,7 +12,6 @@
 mod agent;
 mod keys;
 mod platform;
-#[cfg(unix)]
 mod render;
 mod repl;
 mod theme;

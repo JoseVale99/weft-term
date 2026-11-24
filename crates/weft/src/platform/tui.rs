@@ -13,9 +13,8 @@ use std::thread;
 use std::time::Duration;
 
 use weft_term::BlockState;
+use weft_term::Session;
 use weft_term::layout::{Orientation, Rect, SplitTree};
-use weft_term::pty::Session;
-use weft_term::sys;
 use weft_term::vt::Terminal;
 
 use crate::keys::{Decoder, Key};
@@ -146,7 +145,7 @@ pub fn run() -> io::Result<()> {
         .shell
         .filter(|shell| !shell.trim().is_empty())
         .unwrap_or_else(crate::platform::default_shell);
-    let (cols, rows) = sys::window_size(0).unwrap_or((80, 24));
+    let (cols, rows) = crate::platform::window_size().unwrap_or((80, 24));
     let mut dimensions = (cols, rows.saturating_sub(STATUS_HEIGHT).max(1));
 
     let (sender, receiver) = mpsc::channel();
@@ -166,7 +165,7 @@ pub fn run() -> io::Result<()> {
     next_tab += 1;
     let mut active_tab = 0;
 
-    let raw = sys::RawMode::enable(0)?;
+    let raw = crate::platform::enter_raw()?;
 
     // Reader thread for the keyboard.
     let input_sender = sender.clone();
@@ -323,7 +322,7 @@ pub fn run() -> io::Result<()> {
             }
             Ok(Message::InputClosed) => break,
             Err(RecvTimeoutError::Timeout) => {
-                if let Ok((cols, rows)) = sys::window_size(0) {
+                if let Ok((cols, rows)) = crate::platform::window_size() {
                     let rows = rows.saturating_sub(STATUS_HEIGHT).max(1);
                     if (cols, rows) != dimensions {
                         dimensions = (cols, rows);

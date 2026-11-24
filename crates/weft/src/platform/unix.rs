@@ -31,6 +31,11 @@ pub fn default_shell() -> String {
     env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_owned())
 }
 
+/// Size of the terminal, or (80, 24) when it cannot be measured.
+pub fn window_size() -> io::Result<(usize, usize)> {
+    sys::window_size(0)
+}
+
 /// Width of the terminal, or 80 columns when it cannot be measured.
 pub fn columns() -> usize {
     sys::window_size(0).map_or(80, |(columns, _)| columns)

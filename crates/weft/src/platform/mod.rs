@@ -4,7 +4,7 @@
 //! the crate is free of `cfg` attributes: shells, command execution, raw mode
 //! and the choice of front-end.
 
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 mod tui;
 #[cfg(unix)]
 mod unix;
@@ -12,7 +12,11 @@ mod unix;
 mod windows;
 
 #[cfg(unix)]
-pub use unix::{columns, command, default_shell, enter_raw, home, interactive, is_interactive};
+pub use unix::{
+    columns, command, default_shell, enter_raw, home, interactive, is_interactive, window_size,
+};
 
 #[cfg(windows)]
-pub use windows::{columns, command, enter_raw, home, interactive, is_interactive};
+pub use windows::{
+    columns, command, default_shell, enter_raw, home, interactive, is_interactive, window_size,
+};

@@ -32,9 +32,9 @@ pub fn home() -> String {
     env::var("USERPROFILE").unwrap_or_else(|_| ".".to_owned())
 }
 
-/// Width of the terminal; fixed until the console is wired.
+/// Width of the terminal, or 80 columns when it cannot be measured.
 pub fn columns() -> usize {
-    80
+    sys::window_size().map_or(80, |(columns, _)| columns)
 }
 
 /// Whether standard input is a terminal.
@@ -42,7 +42,12 @@ pub fn is_interactive() -> bool {
     std::io::IsTerminal::is_terminal(&io::stdin())
 }
 
-/// Windows always uses the block shell until ConPTY is implemented.
+/// The user's shell, for the full-screen terminal.
+pub fn default_shell() -> String {
+    env::var("COMSPEC").unwrap_or_else(|_| "cmd.exe".to_owned())
+}
+
+/// Runs the front-end that fits the environment.
 pub fn interactive() -> io::Result<()> {
-    crate::repl::run()
+    super::tui::run()
 }
