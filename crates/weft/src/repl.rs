@@ -142,7 +142,7 @@ fn interactive(history_limit: usize, store: Option<&Store>) -> io::Result<()> {
                     }
                     Key::CtrlN => {
                         if editor.rows() == 1 {
-                            if let Some(entry) = history.next() {
+                            if let Some(entry) = history.next_entry() {
                                 editor.set_text(entry);
                             }
                         } else {
@@ -160,7 +160,7 @@ fn interactive(history_limit: usize, store: Option<&Store>) -> io::Result<()> {
                     }
                     Key::Down => {
                         if editor.rows() == 1
-                            && let Some(entry) = history.next()
+                            && let Some(entry) = history.next_entry()
                         {
                             editor.set_text(entry);
                         } else {

@@ -181,7 +181,7 @@ impl Terminal {
             0x07 => {}
             0x08 => self.grid.backspace(),
             0x09 => self.grid.tab(),
-            0x0a | 0x0b | 0x0c => self.grid.linefeed(),
+            0x0a..=0x0c => self.grid.linefeed(),
             0x0d => self.grid.carriage_return(),
             0x7f => {}
             _ => self.utf8(byte),
@@ -235,10 +235,7 @@ impl Terminal {
     fn csi_byte(&mut self, byte: u8) {
         match byte {
             // A new escape aborts the CSI, as in xterm and vte.
-            0x1b => {
-                self.state = State::Escape;
-                return;
-            }
+            0x1b => self.state = State::Escape,
             b'0'..=b'9' => {
                 self.csi.digit(byte);
                 self.state = State::Csi;

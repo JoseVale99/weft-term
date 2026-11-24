@@ -82,11 +82,7 @@ impl Decoder {
         loop {
             let first = *self.buffer.first()?;
             let key = match first {
-                0x1b => match self.escape()? {
-                    Some(key) => key,
-                    // An incomplete sequence: keep the bytes for the next read.
-                    None => return None,
-                },
+                0x1b => self.escape()??,
                 0x7f | 0x08 => Key::Backspace,
                 b'\r' | b'\n' => Key::Enter,
                 b'\t' => Key::Tab,
@@ -177,7 +173,7 @@ impl Decoder {
                 self.buffer.drain(..c.len_utf8());
                 Some(Some(Key::Char(c)))
             }
-            Err(error) if error.error_len().is_none() => Some(None),
+            Err(error) if error.error_len().is_none() => None,
             Err(_) => {
                 // Invalid byte: drop it so the stream can resynchronize.
                 self.buffer.remove(0);

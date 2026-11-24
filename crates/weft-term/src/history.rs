@@ -63,7 +63,7 @@ impl History {
     }
 
     /// Returns the next entry, restoring the draft after the newest one.
-    pub fn next(&mut self) -> Option<&str> {
+    pub fn next_entry(&mut self) -> Option<&str> {
         let position = self.position?;
         if position + 1 >= self.entries.len() {
             self.position = None;
@@ -225,9 +225,9 @@ mod tests {
         assert_eq!(history.previous("dr"), Some("second"));
         assert_eq!(history.previous("dr"), Some("first"));
         assert_eq!(history.previous("dr"), Some("first"));
-        assert_eq!(history.next(), Some("second"));
-        assert_eq!(history.next(), Some("dr"));
-        assert_eq!(history.next(), None);
+        assert_eq!(history.next_entry(), Some("second"));
+        assert_eq!(history.next_entry(), Some("dr"));
+        assert_eq!(history.next_entry(), None);
     }
 
     #[test]
@@ -236,7 +236,7 @@ mod tests {
         history.record("ls");
         assert_eq!(history.previous(""), Some("ls"));
         history.reset();
-        assert_eq!(history.next(), None);
+        assert_eq!(history.next_entry(), None);
     }
 
     #[test]

@@ -109,7 +109,7 @@ mod tests {
     fn every_palette_has_sixteen_colors() {
         for theme in BUILTIN {
             assert_eq!(theme.palette.len(), 16);
-            assert_eq!(names().contains(&theme.name), true);
+            assert!(names().contains(&theme.name));
         }
     }
 

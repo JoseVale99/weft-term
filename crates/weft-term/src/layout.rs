@@ -67,7 +67,10 @@ pub fn spans(total: usize, count: usize) -> Vec<Span> {
 
 /// Sizes only, in order.
 pub fn heights(total: usize, count: usize) -> Vec<usize> {
-    spans(total, count).into_iter().map(|span| span.size).collect()
+    spans(total, count)
+        .into_iter()
+        .map(|span| span.size)
+        .collect()
 }
 
 /// A rectangle in screen cells, zero-based.

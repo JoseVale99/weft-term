@@ -240,20 +240,13 @@ pub fn run() -> io::Result<()> {
             let mut frame =
                 String::with_capacity(dimensions.0 * (dimensions.1 + STATUS_HEIGHT) * 4);
             let leaves = tab.tree.leaves();
-            let position = leaves
-                .iter()
-                .position(|id| *id == tab.focus)
-                .unwrap_or(0);
+            let position = leaves.iter().position(|id| *id == tab.focus).unwrap_or(0);
             let focused = tab.panes.iter().find(|pane| pane.id == tab.focus);
             let status = if notice.is_empty() {
                 match focused {
-                    Some(pane) => status_line(
-                        &pane.terminal,
-                        &labels,
-                        active_tab,
-                        position,
-                        leaves.len(),
-                    ),
+                    Some(pane) => {
+                        status_line(&pane.terminal, &labels, active_tab, position, leaves.len())
+                    }
                     None => "no pane".to_owned(),
                 }
             } else {
@@ -645,7 +638,9 @@ fn remove_pane(
     let next = tab.tree.remove(pane_id);
     tab.panes.remove(pane);
     if was_focused {
-        tab.focus = next.or_else(|| tab.tree.leaves().first().copied()).unwrap_or(0);
+        tab.focus = next
+            .or_else(|| tab.tree.leaves().first().copied())
+            .unwrap_or(0);
     } else if !tab.tree.contains(tab.focus) {
         tab.focus = tab.tree.leaves().first().copied().unwrap_or(0);
     }

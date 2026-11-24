@@ -407,7 +407,7 @@ impl Grid {
 
     pub fn back_tab(&mut self) {
         let x = self.screen().cursor.x;
-        self.screen_mut().cursor.x = if x % 8 == 0 {
+        self.screen_mut().cursor.x = if x.is_multiple_of(8) {
             x.saturating_sub(8)
         } else {
             x - (x % 8)
@@ -637,21 +637,13 @@ impl Grid {
         match mode {
             0 => {
                 let start = y * cols + x;
-                for cell in &mut screen.cells[start..] {
-                    *cell = blank;
-                }
+                screen.cells[start..].fill(blank);
             }
             1 => {
                 let end = (y * cols + x + 1).min(rows * cols);
-                for cell in &mut screen.cells[..end] {
-                    *cell = blank;
-                }
+                screen.cells[..end].fill(blank);
             }
-            _ => {
-                for cell in &mut screen.cells {
-                    *cell = blank;
-                }
-            }
+            _ => screen.cells.fill(blank),
         }
     }
 

@@ -119,10 +119,7 @@ pub fn window_size(fd: RawFd) -> io::Result<(usize, usize)> {
         return Err(io::Error::last_os_error());
     }
     if size.cols == 0 || size.rows == 0 {
-        return Err(io::Error::new(
-            io::ErrorKind::Other,
-            "terminal reported a zero size",
-        ));
+        return Err(io::Error::other("terminal reported a zero size"));
     }
     Ok((usize::from(size.cols), usize::from(size.rows)))
 }

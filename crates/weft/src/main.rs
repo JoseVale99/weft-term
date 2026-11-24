@@ -3,7 +3,7 @@
 //! Commands:
 //!
 //! - `weft`             interactive terminal (full screen on Unix, block shell
-//!                      when stdin is not a terminal)
+//!   when stdin is not a terminal)
 //! - `weft run <cmd>`   run one command and report its block
 //! - `weft shell`       block shell without a pseudo-terminal
 //! - `weft integration` print the shell integration script for bash/zsh/fish

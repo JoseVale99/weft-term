@@ -201,11 +201,9 @@ fn pty_session_runs_a_real_process() {
         let _ = sender.send(collected);
     });
 
-    let mut output = Vec::new();
-    while let Ok(chunk) = receiver.recv_timeout(Duration::from_secs(5)) {
-        output = chunk;
-        break;
-    }
+    let output = receiver
+        .recv_timeout(Duration::from_secs(5))
+        .unwrap_or_default();
     session.kill();
     let text = String::from_utf8_lossy(&output);
     assert!(text.contains("pty-ok"), "output was {text:?}");

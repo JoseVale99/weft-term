@@ -260,7 +260,10 @@ fn a_pane_splits_to_the_right_and_runs_a_command() {
         }
         thread::sleep(Duration::from_millis(50));
     }
-    assert!(exited, "split session did not exit; terminal said:\n{output}");
+    assert!(
+        exited,
+        "split session did not exit; terminal said:\n{output}"
+    );
 }
 
 #[test]

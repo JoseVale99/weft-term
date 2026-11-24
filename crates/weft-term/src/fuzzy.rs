@@ -89,7 +89,7 @@ pub fn rank<'a>(
         .into_iter()
         .filter_map(|candidate| matches(pattern, candidate).map(|found| (candidate, found)))
         .collect();
-    scored.sort_by(|a, b| b.1.score.cmp(&a.1.score));
+    scored.sort_by_key(|candidate| std::cmp::Reverse(candidate.1.score));
     scored
 }
 
