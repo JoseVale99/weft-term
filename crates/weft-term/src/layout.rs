@@ -149,13 +149,7 @@ impl Node {
     }
 
     fn resize(&mut self, focus: usize, delta: i16) -> bool {
-        let Self::Split {
-            ratio,
-            first,
-            second,
-            ..
-        } = self
-        else {
+        let Self::Split { ratio, first, second, .. } = self else {
             return false;
         };
         let in_first = first.contains(focus);
@@ -205,12 +199,7 @@ impl Node {
     fn layout(&self, area: Rect, out: &mut Layout) {
         match self {
             Self::Leaf(id) => out.panes.push((*id, area)),
-            Self::Split {
-                orientation,
-                ratio,
-                first,
-                second,
-            } => {
+            Self::Split { orientation, ratio, first, second } => {
                 let (lead, trail, separator) = split_area(area, *orientation, *ratio);
                 first.layout(lead, out);
                 second.layout(trail, out);

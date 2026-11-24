@@ -114,7 +114,7 @@ pub fn open_pty() -> io::Result<(File, File, String)> {
 pub fn window_size(fd: RawFd) -> io::Result<(usize, usize)> {
     let mut size = WinSize::default();
     // SAFETY: `TIOCGWINSZ` writes a `struct winsize` into the passed pointer.
-    let result = unsafe { ioctl(fd, platform::TIOCGWINSZ, &mut size as *mut WinSize) };
+    let result = unsafe { ioctl(fd, platform::TIOCGWINSZ, std::ptr::addr_of_mut!(size)) };
     if result != 0 {
         return Err(io::Error::last_os_error());
     }
@@ -136,7 +136,7 @@ pub fn set_size(fd: RawFd, cols: usize, rows: usize) -> io::Result<()> {
         ypixel: 0,
     };
     // SAFETY: `TIOCSWINSZ` reads a `struct winsize` from the passed pointer.
-    let result = unsafe { ioctl(fd, platform::TIOCSWINSZ, &size as *const WinSize) };
+    let result = unsafe { ioctl(fd, platform::TIOCSWINSZ, std::ptr::addr_of!(size)) };
     if result != 0 {
         return Err(io::Error::last_os_error());
     }
@@ -181,14 +181,14 @@ impl RawMode {
         // SAFETY: `termios` is plain old data; zeroing is a valid initial state.
         let mut original: Termios = unsafe { std::mem::zeroed() };
         // SAFETY: the descriptor is a terminal and the pointer is valid.
-        if unsafe { tcgetattr(fd, &mut original) } != 0 {
+        if unsafe { tcgetattr(fd, std::ptr::addr_of_mut!(original)) } != 0 {
             return Err(io::Error::last_os_error());
         }
         let mut raw = original;
         // SAFETY: `cfmakeraw` mutates a caller-owned struct in place.
-        unsafe { cfmakeraw(&mut raw) };
+        unsafe { cfmakeraw(std::ptr::addr_of_mut!(raw)) };
         // SAFETY: same as above for `tcsetattr`.
-        if unsafe { tcsetattr(fd, platform::TCSANOW, &raw) } != 0 {
+        if unsafe { tcsetattr(fd, platform::TCSANOW, std::ptr::addr_of!(raw)) } != 0 {
             return Err(io::Error::last_os_error());
         }
         Ok(Self { fd, original })
@@ -199,7 +199,7 @@ impl Drop for RawMode {
     fn drop(&mut self) {
         // SAFETY: restores a snapshot previously returned by `tcgetattr`.
         unsafe {
-            tcsetattr(self.fd, platform::TCSANOW, &self.original);
+            tcsetattr(self.fd, platform::TCSANOW, std::ptr::addr_of!(self.original));
         }
     }
 }
