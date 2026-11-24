@@ -122,21 +122,33 @@ mod tests {
     fn a_session_spawns_and_reports_output() {
         let mut session =
             Session::spawn("cmd.exe", &["/C", "echo conpty-ok"], 80, 24).expect("spawn");
-        let mut output = String::new();
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
-        while std::time::Instant::now() < deadline {
+        // Reading is blocking, so the deadline only works if the read happens
+        // on another thread: a console that never delivers output or EOF must
+        // fail the test instead of hanging the run.
+        let mut reader = session.try_clone_master().expect("clone");
+        let (sender, receiver) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
             let mut buffer = [0u8; 4096];
-            match session.read(&mut buffer) {
-                Ok(0) => break,
-                Ok(count) => {
-                    output.push_str(&String::from_utf8_lossy(&buffer[..count]));
-                    if output.contains("conpty-ok") {
+            while let Ok(count) = reader.read(&mut buffer) {
+                if count == 0 || sender.send(buffer[..count].to_vec()).is_err() {
+                    break;
+                }
+            }
+        });
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        let mut output = Vec::new();
+        while let Some(left) = deadline.checked_duration_since(std::time::Instant::now()) {
+            match receiver.recv_timeout(left) {
+                Ok(chunk) => {
+                    output.extend_from_slice(&chunk);
+                    if String::from_utf8_lossy(&output).contains("conpty-ok") {
                         break;
                     }
                 }
                 Err(_) => break,
             }
         }
+        let output = String::from_utf8_lossy(&output).into_owned();
         assert!(output.contains("conpty-ok"), "output was {output:?}");
         let mut exit = None;
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
