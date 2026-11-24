@@ -10,6 +10,7 @@
 //! - `weft help`        command list
 
 mod agent;
+mod gpu;
 mod keys;
 mod platform;
 mod render;
@@ -38,6 +39,7 @@ fn main() -> ExitCode {
         Some("workflow" | "workflows") => workflow(&args[1..]),
         Some("agent") => agent::run(&args[1..]),
         Some("theme" | "themes") => themes(),
+        Some("gpu") => platform::gpu(),
         Some("help" | "--help" | "-h") => {
             print_help();
             Ok(())

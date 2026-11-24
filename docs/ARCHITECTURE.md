@@ -83,8 +83,18 @@ El motor no sabe cómo se dibuja. Hoy existen dos front-ends en el crate `weft`:
 
 - **ANSI (implementado, Unix).** Terminal crudo, render por frame y barra de
   estado. Reserva una fila para la barra, por lo que el PTY recibe `filas - 1`.
-- **GPU (siguiente hito).** Ventana `winit`, superficie `wgpu`, atlas de glifos
-  con `glyphon` y layout de la interfaz con `taffy`.
+- **GPU (experimental, `weft gpu`).** Ventana `winit` (0.30), superficie `wgpu`
+  (30) y glifos con `glyphon` (0.12). Primer corte: un único panel, sin
+  divisiones ni paleta. Comparte con el TUI el motor (`Terminal`, `Session`,
+  decoder de teclas) y solo sustituye el dibujo: el PTY se lee en un hilo
+  aparte, la salida entra en el grid por la misma vía y por frame se colapsan
+  las filas visibles (caracteres anchos una vez, blancos finales recortados) y
+  se dibujan como áreas de texto por línea sobre el fondo del tema. El color
+  por celda (ANSI, estilos) y los quads de fondo llegan en cortes posteriores.
+  La ventana se crea a 80x24 y se redimensiona en celdas con el PTY; el evento
+  `ModifiersChanged` alimenta el estado de Ctrl para los bytes de control.
+  La superficie se crea sobre `Arc<Window>` (`SurfaceTarget<'static>`), por lo
+  que no hay cirugía de lifetimes ni `unsafe`.
 
 Ambos consumen `Grid` y `Blocks` y nada más. La diferencia está únicamente en
 el dibujo.

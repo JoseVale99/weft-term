@@ -4,6 +4,13 @@
 //! the crate is free of `cfg` attributes: shells, command execution, raw mode
 //! and the choice of front-end.
 
+use std::io;
+
+/// Runs the experimental GPU front-end.
+pub fn gpu() -> io::Result<()> {
+    crate::gpu::run()
+}
+
 #[cfg(any(unix, windows))]
 mod tui;
 #[cfg(unix)]

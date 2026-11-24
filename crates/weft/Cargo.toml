@@ -12,6 +12,8 @@ name = "weft"
 path = "src/main.rs"
 
 [dependencies]
+glyphon = "0.12.0"
+pollster = "1.0.3"
 rustls = { version = "0.23", default-features = false, features = [
     "ring",
     "std",
@@ -23,6 +25,8 @@ weft-agent = { path = "../weft-agent" }
 weft-config = { path = "../weft-config" }
 weft-store = { path = "../weft-store" }
 weft-term = { path = "../weft-term" }
+wgpu = "30.0.2"
+winit = "0.30.13"
 
 [lints]
 workspace = true
