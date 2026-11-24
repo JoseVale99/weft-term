@@ -6,10 +6,14 @@
 //! a TLS client is a dependency decision, not a hidden fallback.
 
 use std::env;
+use std::fs;
 use std::io::{self, Read, Write};
 use std::net::TcpStream;
+use std::path::Path;
 
-use weft_agent::{Conversation, Event, Provider, Request, Role, StreamParser};
+use weft_agent::{
+    Conversation, Event, Guard, Proposal, Provider, Request, Role, StreamParser, ToolCall, parse,
+};
 use weft_config::{Agent, Config};
 
 /// Runs `weft agent ...`.
@@ -87,16 +91,128 @@ fn chat(agent: &Agent, prompt: &str) -> io::Result<()> {
     }
 
     let events = send(&request, api_key().as_deref())?;
+    let mut calls = Vec::new();
     for event in events {
         match event {
             Event::Text(text) => {
                 print!("{text}");
                 io::stdout().flush()?;
             }
+            Event::ToolCall(call) => calls.push(call),
             Event::Done => break,
         }
     }
     println!();
+    for call in &calls {
+        handle_call(agent, call)?;
+    }
+    Ok(())
+}
+
+fn handle_call(agent: &Agent, call: &ToolCall) -> io::Result<()> {
+    let arguments = parse(&call.arguments).map_err(io::Error::other)?;
+    match call.name.as_str() {
+        "read_file" => {
+            let path = argument(&arguments, "path")?;
+            match weft_agent::resolve(&path) {
+                Ok(path) => match fs::read_to_string(&path) {
+                    Ok(text) => print_truncated(&text, 32 * 1024),
+                    Err(error) => println!("weft: read_file: {error}"),
+                },
+                Err(error) => println!("weft: read_file rejected: {error}"),
+            }
+        }
+        "list_dir" => {
+            let path = argument(&arguments, "path")?;
+            match weft_agent::resolve(&path) {
+                Ok(path) => list_dir(&path),
+                Err(error) => println!("weft: list_dir rejected: {error}"),
+            }
+        }
+        "propose_command" => {
+            let command = argument(&arguments, "command")?;
+            let reason = argument(&arguments, "reason").unwrap_or_default();
+            propose(agent, &command, &reason)?;
+        }
+        other => println!("weft: the model called unknown tool `{other}`"),
+    }
+    Ok(())
+}
+
+fn argument(arguments: &weft_agent::Value, name: &str) -> io::Result<String> {
+    arguments
+        .get(name)
+        .and_then(weft_agent::Value::as_str)
+        .map(str::to_owned)
+        .ok_or_else(|| io::Error::other(format!("tool call is missing `{name}`")))
+}
+
+fn list_dir(path: &Path) {
+    let mut entries: Vec<String> = match fs::read_dir(path) {
+        Ok(entries) => entries
+            .flatten()
+            .map(|entry| {
+                let name = entry.file_name().to_string_lossy().into_owned();
+                if entry.path().is_dir() {
+                    format!("{name}/")
+                } else {
+                    name
+                }
+            })
+            .collect(),
+        Err(error) => {
+            println!("weft: list_dir: {error}");
+            return;
+        }
+    };
+    entries.sort_unstable();
+    for entry in entries.iter().take(200) {
+        println!("{entry}");
+    }
+    if entries.len() > 200 {
+        println!("... {} more entries", entries.len() - 200);
+    }
+}
+
+fn print_truncated(text: &str, limit: usize) {
+    if text.len() <= limit {
+        println!("{text}");
+        return;
+    }
+    let mut end = limit;
+    while end > 0 && !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    println!("{}", &text[..end]);
+    println!("... {} bytes omitted", text.len() - end);
+}
+
+fn propose(agent: &Agent, command: &str, reason: &str) -> io::Result<()> {
+    if !reason.is_empty() {
+        println!("weft: {reason}");
+    }
+    println!("weft: proposed command:\n  {command}");
+    let answer = if agent.auto_approve {
+        Some(true)
+    } else {
+        print!("run it? [y/N] ");
+        io::stdout().flush()?;
+        let mut line = String::new();
+        io::stdin().read_line(&mut line)?;
+        Some(matches!(line.trim().to_ascii_lowercase().as_str(), "y" | "yes"))
+    };
+    let proposal = Proposal::new(command, reason);
+    let guard = Guard::new(agent.auto_approve);
+    match guard.evaluate(&proposal, answer) {
+        weft_agent::Decision::Run => {
+            let block = crate::repl::execute(command)?;
+            if block.code != 0 {
+                println!("weft: command exited with {}", block.code);
+            }
+        }
+        weft_agent::Decision::Rejected => println!("weft: command not run"),
+        weft_agent::Decision::NeedsApproval => println!("weft: waiting for approval"),
+    }
     Ok(())
 }
 
