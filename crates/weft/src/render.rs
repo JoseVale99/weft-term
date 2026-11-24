@@ -7,7 +7,7 @@
 use std::fmt::Write;
 
 use weft_term::grid::{Attrs, Color, Grid, Wide, char_width};
-use weft_term::layout::Orientation;
+use weft_term::layout::{Orientation, Segment};
 
 use crate::theme::Theme;
 
@@ -31,27 +31,19 @@ pub struct PaneView<'a> {
 /// own scroll region and no pane can draw over the next.
 pub fn split(
     views: &[PaneView<'_>],
-    orientation: Orientation,
+    separators: &[Segment],
+    status_row: usize,
+    width: usize,
     status: &str,
     theme: &Theme,
     out: &mut String,
 ) {
     out.clear();
     out.push_str("\x1b[?2026h\x1b[H");
-    let Some(first) = views.first() else {
+    if views.is_empty() {
         out.push_str("\x1b[?25l\x1b[?2026l");
         return;
-    };
-    let width = views
-        .iter()
-        .map(|view| view.column + view.grid.cols())
-        .max()
-        .unwrap_or(first.grid.cols());
-    let height = views
-        .iter()
-        .map(|view| view.row + view.grid.rows())
-        .max()
-        .unwrap_or(first.grid.rows());
+    }
     let mut cursor = None;
     for view in views {
         write_rows(view, theme, out);
@@ -64,15 +56,13 @@ pub fn split(
             ));
         }
     }
-    match orientation {
-        Orientation::Stacked => {
-            for view in views.iter().take(views.len().saturating_sub(1)) {
-                separate_horizontal(view.row + view.grid.rows(), width, theme, out);
+    for segment in separators {
+        match segment.orientation {
+            Orientation::Stacked => {
+                separate_horizontal(segment.x, segment.y, segment.length, theme, out);
             }
-        }
-        Orientation::SideBySide => {
-            for view in views.iter().take(views.len().saturating_sub(1)) {
-                separate_vertical(view.column + view.grid.cols(), height, theme, out);
+            Orientation::SideBySide => {
+                separate_vertical(segment.x, segment.y, segment.length, theme, out);
             }
         }
     }
@@ -82,7 +72,7 @@ pub fn split(
     let _ = write!(
         out,
         "\x1b[{};1H\x1b[0;38;2;{fr};{fg};{fb};48;2;{br};{bg};{bb}m",
-        height + 1
+        status_row + 1
     );
     pad(out, status, width);
     out.push_str("\x1b[0m\x1b[J");
@@ -129,19 +119,19 @@ fn separator_style(theme: &Theme, out: &mut String) {
     );
 }
 
-fn separate_horizontal(top: usize, width: usize, theme: &Theme, out: &mut String) {
-    let _ = write!(out, "\x1b[{};1H", top + 1);
+fn separate_horizontal(x: usize, y: usize, length: usize, theme: &Theme, out: &mut String) {
+    let _ = write!(out, "\x1b[{};{}H", y + 1, x + 1);
     separator_style(theme, out);
-    for _ in 0..width {
+    for _ in 0..length {
         out.push('─');
     }
     out.push_str("\x1b[0m");
 }
 
-fn separate_vertical(column: usize, height: usize, theme: &Theme, out: &mut String) {
+fn separate_vertical(x: usize, y: usize, length: usize, theme: &Theme, out: &mut String) {
     separator_style(theme, out);
-    for row in 0..height {
-        let _ = write!(out, "\x1b[{};{}H│", row + 1, column + 1);
+    for row in 0..length {
+        let _ = write!(out, "\x1b[{};{}H│", y + row + 1, x + 1);
     }
     out.push_str("\x1b[0m");
 }

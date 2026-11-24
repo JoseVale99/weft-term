@@ -13,7 +13,7 @@ use std::thread;
 use std::time::Duration;
 
 use weft_term::BlockState;
-use weft_term::layout::{Orientation, Span, spans};
+use weft_term::layout::{Orientation, Rect, SplitTree};
 use weft_term::pty::Session;
 use weft_term::sys;
 use weft_term::vt::Terminal;
@@ -52,8 +52,8 @@ struct Tab {
     id: usize,
     title: String,
     panes: Vec<Pane>,
-    active: usize,
-    orientation: Orientation,
+    focus: usize,
+    tree: SplitTree,
 }
 
 /// One entry in the command palette.
@@ -64,7 +64,6 @@ enum Command {
     CloseTab,
     SplitDown,
     SplitRight,
-    ToggleSplit,
     NextPane,
     ClosePane,
     CycleTheme,
@@ -73,7 +72,7 @@ enum Command {
     Quit,
 }
 
-const PALETTE: [(&str, Command); 12] = [
+const PALETTE: [(&str, Command); 11] = [
     ("New tab", Command::NewTab),
     ("Next tab", Command::NextTab),
     ("Close tab", Command::CloseTab),
@@ -81,7 +80,6 @@ const PALETTE: [(&str, Command); 12] = [
     ("Split right", Command::SplitRight),
     ("Next pane", Command::NextPane),
     ("Close pane", Command::ClosePane),
-    ("Toggle split layout", Command::ToggleSplit),
     ("Cycle theme (dark/light)", Command::CycleTheme),
     ("Clear screen", Command::ClearScreen),
     ("Reset terminal", Command::ResetTerminal),
@@ -152,13 +150,14 @@ pub fn run() -> io::Result<()> {
     let mut next_pane = 0;
 
     let first = spawn_pane(next_pane, 0, &shell, dimensions.0, dimensions.1, &sender)?;
+    let first_id = first.id;
     next_pane += 1;
     let mut tabs = vec![Tab {
         id: 0,
         title: shell_title(&shell),
         panes: vec![first],
-        active: 0,
-        orientation: Orientation::Stacked,
+        focus: first_id,
+        tree: SplitTree::new(first_id),
     }];
     next_tab += 1;
     let mut active_tab = 0;
@@ -199,9 +198,11 @@ pub fn run() -> io::Result<()> {
         if dirty {
             {
                 let tab = &mut tabs[active_tab];
-                let title = &tab.panes[tab.active].terminal.grid.title;
-                if !title.is_empty() && *title != tab.title {
-                    tab.title.clone_from(title);
+                if let Some(pane) = tab.panes.iter().find(|pane| pane.id == tab.focus) {
+                    let title = &pane.terminal.grid.title;
+                    if !title.is_empty() && *title != tab.title {
+                        tab.title.clone_from(title);
+                    }
                 }
             }
             let labels: Vec<String> = tabs
@@ -214,51 +215,60 @@ pub fn run() -> io::Result<()> {
                 window_title.clone_from(&tab.title);
                 set_title(&window_title)?;
             }
-            let slots = match tab.orientation {
-                Orientation::Stacked => spans(dimensions.1, tab.panes.len()),
-                Orientation::SideBySide => spans(dimensions.0, tab.panes.len()),
+            let area = Rect {
+                x: 0,
+                y: 0,
+                width: dimensions.0,
+                height: dimensions.1,
             };
-            let views: Vec<PaneView<'_>> = tab
+            let layout = tab.tree.layout(area);
+            let views: Vec<PaneView<'_>> = layout
                 .panes
                 .iter()
-                .enumerate()
-                .map(|(index, pane)| {
-                    let slot = slots.get(index).copied().unwrap_or(Span {
-                        start: 0,
-                        size: 0,
-                    });
-                    PaneView {
-                        grid: &pane.terminal.grid,
-                        active: index == tab.active,
-                        row: if matches!(tab.orientation, Orientation::Stacked) {
-                            slot.start
-                        } else {
-                            0
-                        },
-                        column: if matches!(tab.orientation, Orientation::SideBySide) {
-                            slot.start
-                        } else {
-                            0
-                        },
-                    }
+                .filter_map(|(id, rect)| {
+                    tab.panes
+                        .iter()
+                        .find(|pane| pane.id == *id)
+                        .map(|pane| PaneView {
+                            grid: &pane.terminal.grid,
+                            active: *id == tab.focus,
+                            row: rect.y,
+                            column: rect.x,
+                        })
                 })
                 .collect();
             let mut frame = String::with_capacity(
                 dimensions.0 * (dimensions.1 + STATUS_HEIGHT) * 4,
             );
+            let leaves = tab.tree.leaves();
+            let position = leaves
+                .iter()
+                .position(|id| *id == tab.focus)
+                .unwrap_or(0);
+            let focused = tab.panes.iter().find(|pane| pane.id == tab.focus);
             let status = if notice.is_empty() {
-                status_line(
-                    &tab.panes[tab.active].terminal,
-                    &labels,
-                    active_tab,
-                    tab.active,
-                    tab.panes.len(),
-                    tab.orientation,
-                )
+                match focused {
+                    Some(pane) => status_line(
+                        &pane.terminal,
+                        &labels,
+                        active_tab,
+                        position,
+                        leaves.len(),
+                    ),
+                    None => "no pane".to_owned(),
+                }
             } else {
                 std::mem::take(&mut notice)
             };
-            render::split(&views, tab.orientation, &status, theme, &mut frame);
+            render::split(
+                &views,
+                &layout.separators,
+                dimensions.1,
+                dimensions.0,
+                &status,
+                theme,
+                &mut frame,
+            );
             if let Some(open) = &palette {
                 let items: Vec<&str> = PALETTE.iter().map(|(label, _)| *label).collect();
                 render::palette(&items, open.selected, theme, dimensions.0, &mut frame);
@@ -296,7 +306,9 @@ pub fn run() -> io::Result<()> {
                     palette = Some(Palette::new());
                 } else {
                     let tab = &mut tabs[active_tab];
-                    tab.panes[tab.active].session.write(&bytes)?;
+                    if let Some(pane) = tab.panes.iter_mut().find(|pane| pane.id == tab.focus) {
+                        pane.session.write(&bytes)?;
+                    }
                 }
                 dirty = true;
             }
@@ -377,12 +389,13 @@ fn apply(
         Command::NewTab => {
             match spawn_pane(*next_pane, *next_tab, shell, dimensions.0, dimensions.1, sender) {
                 Ok(pane) => {
+                    let pane_id = pane.id;
                     tabs.push(Tab {
                         id: *next_tab,
                         title: shell_title(shell),
                         panes: vec![pane],
-                        active: 0,
-                        orientation: Orientation::Stacked,
+                        focus: pane_id,
+                        tree: SplitTree::new(pane_id),
                     });
                     *active_tab = tabs.len() - 1;
                     *next_tab += 1;
@@ -409,54 +422,78 @@ fn apply(
                 Orientation::SideBySide
             };
             let tab = &mut tabs[*active_tab];
-            let count = tab.panes.len() + 1;
-            if !fits(dimensions, count, orientation) {
+            let area = Rect {
+                x: 0,
+                y: 0,
+                width: dimensions.0,
+                height: dimensions.1,
+            };
+            let mut preview = tab.tree.clone();
+            if !preview.split(tab.focus, *next_pane, orientation) {
+                *notice = "pane is no longer available".to_owned();
+                return Ok(());
+            }
+            let fits = preview.layout(area).panes.iter().any(|(id, rect)| {
+                *id == *next_pane
+                    && match orientation {
+                        Orientation::Stacked => rect.height >= 3,
+                        Orientation::SideBySide => rect.width >= 20,
+                    }
+            });
+            if !fits {
                 *notice = format!(
                     "not enough room for another pane to the {}",
                     orientation.label()
                 );
                 return Ok(());
             }
-            let cols = tab.panes[tab.active].terminal.grid.cols();
-            let rows = tab.panes[tab.active].terminal.grid.rows();
+            let (cols, rows) = tab
+                .panes
+                .iter()
+                .find(|pane| pane.id == tab.focus)
+                .map_or((dimensions.0, dimensions.1), |pane| {
+                    (pane.terminal.grid.cols(), pane.terminal.grid.rows())
+                });
             match spawn_pane(*next_pane, tab.id, shell, cols, rows, sender) {
                 Ok(pane) => {
-                    tab.orientation = orientation;
+                    let id = pane.id;
+                    if !tab.tree.split(tab.focus, id, orientation) {
+                        *notice = "could not place the new pane".to_owned();
+                        return Ok(());
+                    }
+                    tab.focus = id;
                     tab.panes.push(pane);
-                    tab.active = tab.panes.len() - 1;
                     *next_pane += 1;
                     resize_tab(tab, dimensions);
                 }
                 Err(error) => *notice = format!("could not split pane: {error}"),
             }
         }
-        Command::ToggleSplit => {
-            let tab = &mut tabs[*active_tab];
-            if tab.panes.len() > 1 {
-                let target = tab.orientation.toggled();
-                if fits(dimensions, tab.panes.len(), target) {
-                    tab.orientation = target;
-                    resize_tab(tab, dimensions);
-                } else {
-                    *notice = format!(
-                        "not enough room for panes to the {}",
-                        target.label()
-                    );
-                }
-            }
-        }
         Command::NextPane => {
             let tab = &mut tabs[*active_tab];
-            if tab.panes.len() > 1 {
-                tab.active = (tab.active + 1) % tab.panes.len();
+            let leaves = tab.tree.leaves();
+            if leaves.len() > 1
+                && let Some(position) = leaves.iter().position(|id| *id == tab.focus)
+            {
+                tab.focus = leaves[(position + 1) % leaves.len()];
             }
         }
         Command::ClosePane => {
-            let tab = &tabs[*active_tab];
-            let pane = tab.panes[tab.active].id;
-            if remove_pane(tabs, tab.id, pane, active_tab, dimensions) {
-                *quit = true;
+            let tab_id = tabs[*active_tab].id;
+            let pane = tabs[*active_tab].focus;
+            if tabs[*active_tab].panes.len() == 1 {
+                if remove_tab(tabs, tab_id, active_tab) {
+                    *quit = true;
+                }
+                return Ok(());
             }
+            let tab = &mut tabs[*active_tab];
+            let Some(next) = tab.tree.remove(pane) else {
+                return Ok(());
+            };
+            tab.panes.retain(|found| found.id != pane);
+            tab.focus = next;
+            resize_tab(tab, dimensions);
         }
         Command::CycleTheme => {
             *theme = if theme.name == theme::LIGHT.name {
@@ -467,11 +504,15 @@ fn apply(
         }
         Command::ClearScreen => {
             let tab = &mut tabs[*active_tab];
-            let _ = tab.panes[tab.active].terminal.feed(b"\x1b[2J\x1b[H");
+            if let Some(pane) = tab.panes.iter_mut().find(|pane| pane.id == tab.focus) {
+                let _ = pane.terminal.feed(b"\x1b[2J\x1b[H");
+            }
         }
         Command::ResetTerminal => {
             let tab = &mut tabs[*active_tab];
-            let _ = tab.panes[tab.active].terminal.feed(b"\x1bc");
+            if let Some(pane) = tab.panes.iter_mut().find(|pane| pane.id == tab.focus) {
+                let _ = pane.terminal.feed(b"\x1bc");
+            }
         }
         Command::Quit => *quit = true,
     }
@@ -518,39 +559,22 @@ fn spawn_pane(
 }
 
 fn resize_tab(tab: &mut Tab, dimensions: (usize, usize)) {
-    let count = tab.panes.len();
-    match tab.orientation {
-        Orientation::Stacked => {
-            let rows = spans(dimensions.1, count);
-            if rows.len() != count {
-                return;
-            }
-            for (pane, slot) in tab.panes.iter_mut().zip(rows) {
-                pane.terminal.resize(dimensions.0, slot.size);
-                let _ = pane.session.resize(dimensions.0, slot.size);
-            }
-        }
-        Orientation::SideBySide => {
-            let cols = spans(dimensions.0, count);
-            if cols.len() != count {
-                return;
-            }
-            for (pane, slot) in tab.panes.iter_mut().zip(cols) {
-                pane.terminal.resize(slot.size, dimensions.1);
-                let _ = pane.session.resize(slot.size, dimensions.1);
-            }
+    let area = Rect {
+        x: 0,
+        y: 0,
+        width: dimensions.0,
+        height: dimensions.1,
+    };
+    let layout = tab.tree.layout(area);
+    if layout.panes.len() != tab.panes.len() {
+        return;
+    }
+    for (id, rect) in layout.panes {
+        if let Some(pane) = tab.panes.iter_mut().find(|pane| pane.id == id) {
+            pane.terminal.resize(rect.width, rect.height);
+            let _ = pane.session.resize(rect.width, rect.height);
         }
     }
-}
-
-/// Whether `count` panes fit with a usable size in the given orientation.
-fn fits(dimensions: (usize, usize), count: usize, orientation: Orientation) -> bool {
-    let (total, minimum) = match orientation {
-        Orientation::Stacked => (dimensions.1, 3),
-        Orientation::SideBySide => (dimensions.0, 20),
-    };
-    let slots = spans(total, count);
-    slots.len() == count && slots.iter().all(|slot| slot.size >= minimum)
 }
 
 /// Removes a whole tab. Returns true when none are left.
@@ -585,8 +609,8 @@ fn remove_pane(
     let Some(pane) = tab.panes.iter().position(|pane| pane.id == pane_id) else {
         return false;
     };
-    tab.panes.remove(pane);
-    if tab.panes.is_empty() {
+    if tab.panes.len() == 1 {
+        tab.panes.remove(pane);
         tabs.remove(position);
         if tabs.is_empty() {
             return true;
@@ -597,10 +621,14 @@ fn remove_pane(
         *active = (*active).min(tabs.len() - 1);
         return false;
     }
-    if tab.active > pane {
-        tab.active -= 1;
+    let was_focused = tab.focus == pane_id;
+    let next = tab.tree.remove(pane_id);
+    tab.panes.remove(pane);
+    if was_focused {
+        tab.focus = next.or_else(|| tab.tree.leaves().first().copied()).unwrap_or(0);
+    } else if !tab.tree.contains(tab.focus) {
+        tab.focus = tab.tree.leaves().first().copied().unwrap_or(0);
     }
-    tab.active = tab.active.min(tab.panes.len() - 1);
     resize_tab(tab, dimensions);
     false
 }
@@ -619,7 +647,6 @@ fn status_line(
     active_tab: usize,
     pane: usize,
     pane_count: usize,
-    orientation: Orientation,
 ) -> String {
     let cwd = terminal
         .blocks
@@ -649,11 +676,10 @@ fn status_line(
     let mut line = String::with_capacity(terminal.grid.cols());
     let _ = write!(
         line,
-        " {} | pane {}/{} {} | {cwd} | {state} | blocks {} | F1",
+        " {} | pane {}/{} | {cwd} | {state} | blocks {} | F1",
         tabs.join(" "),
         pane + 1,
         pane_count,
-        orientation.label(),
         terminal.blocks.len()
     );
     line

@@ -251,3 +251,71 @@ fn a_pane_splits_to_the_right_and_runs_a_command() {
     }
     assert!(exited, "split session did not exit; terminal said:\n{output}");
 }
+
+#[test]
+fn panes_mix_vertical_and_horizontal_splits() {
+    let mut session =
+        Session::spawn(env!("CARGO_BIN_EXE_weft"), &[], 80, 24).expect("start weft");
+
+    let mut master = session.try_clone_master().expect("clone master");
+    let (sender, receiver) = mpsc::channel();
+    thread::spawn(move || {
+        let mut buffer = [0u8; 8192];
+        loop {
+            match master.read(&mut buffer) {
+                Ok(0) | Err(_) => return,
+                Ok(count) => {
+                    if sender.send(buffer[..count].to_vec()).is_err() {
+                        return;
+                    }
+                }
+            }
+        }
+    });
+
+    let mut output = String::new();
+    collect(&receiver, &mut output, Duration::from_secs(2));
+
+    // Split down, then split the new bottom pane to the right.
+    session.write(b"\x1bOP").expect("open palette");
+    thread::sleep(Duration::from_millis(300));
+    session
+        .write(b"\x1b[B\x1b[B\x1b[B\r")
+        .expect("choose split down");
+    thread::sleep(Duration::from_millis(500));
+    session.write(b"\x1bOP").expect("open palette again");
+    thread::sleep(Duration::from_millis(300));
+    session
+        .write(b"\x1b[B\x1b[B\x1b[B\x1b[B\r")
+        .expect("choose split right");
+    thread::sleep(Duration::from_millis(600));
+
+    session
+        .write(b"printf '\\x36\\x36-mixed\\n'\r")
+        .expect("write command");
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let mut seen = false;
+    while Instant::now() < deadline && !seen {
+        collect(&receiver, &mut output, Duration::from_millis(200));
+        seen = output.contains("66-mixed");
+    }
+    assert!(seen, "command did not run in the mixed pane; terminal said:\n{output}");
+
+    thread::sleep(Duration::from_millis(500));
+    session.write(b"exit\r").expect("exit mixed pane");
+    thread::sleep(Duration::from_millis(600));
+    session.write(b"exit\r").expect("exit bottom pane");
+    thread::sleep(Duration::from_millis(600));
+    session.write(b"exit\r").expect("exit top pane");
+
+    let mut exited = false;
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while Instant::now() < deadline {
+        if matches!(session.try_wait(), Ok(Some(_))) {
+            exited = true;
+            break;
+        }
+        thread::sleep(Duration::from_millis(50));
+    }
+    assert!(exited, "mixed session did not exit; terminal said:\n{output}");
+}
