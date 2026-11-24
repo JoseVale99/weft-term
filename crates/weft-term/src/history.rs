@@ -7,6 +7,7 @@
 use std::collections::VecDeque;
 
 use crate::fuzzy;
+use crate::input::Editor;
 
 /// A bounded command history with fuzzy search.
 #[derive(Debug, Clone)]
@@ -113,6 +114,85 @@ impl History {
     }
 }
 
+/// Incremental reverse history search.
+///
+/// The editor shows a live preview: every query change selects the newest
+/// fuzzy match, and accepting keeps it. Cancelling restores the line the user
+/// was typing before the search started.
+#[derive(Debug)]
+pub struct Search {
+    query: String,
+    original: String,
+    matches: Vec<String>,
+    index: usize,
+}
+
+impl Search {
+    /// Starts a search and remembers the editor's current text.
+    pub fn start(editor: &Editor) -> Self {
+        Self {
+            query: String::new(),
+            original: editor.text().to_owned(),
+            matches: Vec::new(),
+            index: 0,
+        }
+    }
+
+    /// Current query.
+    pub fn query(&self) -> &str {
+        &self.query
+    }
+
+    /// Matches for the current query, newest first.
+    pub fn matches(&self) -> &[String] {
+        &self.matches
+    }
+
+    /// Appends a character, recomputes matches and previews the newest one.
+    pub fn push(&mut self, c: char, history: &History, editor: &mut Editor) {
+        self.query.push(c);
+        self.refresh(history, editor);
+    }
+
+    /// Removes the last query character and recomputes.
+    pub fn backspace(&mut self, history: &History, editor: &mut Editor) {
+        self.query.pop();
+        self.refresh(history, editor);
+    }
+
+    /// Recomputes the matches for the current query.
+    pub fn refresh(&mut self, history: &History, editor: &mut Editor) {
+        self.matches = history
+            .search(&self.query)
+            .into_iter()
+            .map(str::to_owned)
+            .collect();
+        self.index = 0;
+        self.preview(editor);
+    }
+
+    /// Moves to the next match, wrapping around.
+    pub fn next(&mut self, editor: &mut Editor) {
+        if self.matches.is_empty() {
+            return;
+        }
+        self.index = (self.index + 1) % self.matches.len();
+        self.preview(editor);
+    }
+
+    /// Restores the line that was being edited before the search.
+    pub fn cancel(self, editor: &mut Editor) {
+        editor.set_text(self.original);
+    }
+
+    fn preview(&self, editor: &mut Editor) {
+        match self.matches.get(self.index) {
+            Some(found) => editor.set_text(found.clone()),
+            None => editor.set_text(self.original.clone()),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -182,5 +262,39 @@ mod tests {
         history.record("ls");
         let found = history.search("ls");
         assert_eq!(found, ["ls"]);
+    }
+
+    #[test]
+    fn search_previews_newest_match_and_cancels() {
+        let mut history = History::new(10);
+        history.record("cargo build");
+        history.record("git status");
+        history.record("cargo test");
+
+        let mut editor = Editor::new();
+        editor.set_text("draft");
+        let mut search = Search::start(&editor);
+        search.push('c', &history, &mut editor);
+        search.push('a', &history, &mut editor);
+        assert_eq!(search.query(), "ca");
+        assert_eq!(editor.text(), "cargo test");
+        assert_eq!(search.matches().len(), 2);
+
+        search.next(&mut editor);
+        assert_eq!(editor.text(), "cargo build");
+
+        search.cancel(&mut editor);
+        assert_eq!(editor.text(), "draft");
+    }
+
+    #[test]
+    fn an_empty_query_keeps_the_original_when_there_is_no_history() {
+        let history = History::new(10);
+        let mut editor = Editor::new();
+        editor.set_text("draft");
+        let mut search = Search::start(&editor);
+        search.refresh(&history, &mut editor);
+        assert_eq!(editor.text(), "draft");
+        assert!(search.matches().is_empty());
     }
 }

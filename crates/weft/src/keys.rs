@@ -56,6 +56,8 @@ pub enum Key {
     CtrlP,
     /// Next history entry.
     CtrlN,
+    /// Search the history.
+    CtrlR,
 }
 
 /// Incremental key decoder.
@@ -97,6 +99,7 @@ impl Decoder {
                 0x19 => Key::CtrlY,
                 0x10 => Key::CtrlP,
                 0x0e => Key::CtrlN,
+                0x12 => Key::CtrlR,
                 byte if byte < 0x20 => {
                     // Unknown control character: drop it and keep decoding.
                     self.buffer.remove(0);
@@ -242,7 +245,7 @@ mod tests {
     #[test]
     fn control_keys_are_decoded() {
         assert_eq!(
-            decode(b"\x03\x04\x0b\x0c\x15\x17\x19\x10\x0e\r\t\x7f"),
+            decode(b"\x03\x04\x0b\x0c\x15\x17\x19\x10\x0e\x12\r\t\x7f"),
             [
                 Key::CtrlC,
                 Key::CtrlD,
@@ -253,6 +256,7 @@ mod tests {
                 Key::CtrlY,
                 Key::CtrlP,
                 Key::CtrlN,
+                Key::CtrlR,
                 Key::Enter,
                 Key::Tab,
                 Key::Backspace,

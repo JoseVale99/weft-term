@@ -14,6 +14,7 @@ use std::time::Instant;
 use weft_store::{SessionEntry, Store};
 use weft_term::History;
 use weft_term::grid::char_width;
+use weft_term::history::Search;
 use weft_term::input::Editor;
 
 use crate::keys::{Decoder, Key};
@@ -55,12 +56,13 @@ fn interactive(history_limit: usize, store: Option<&Store>) -> io::Result<()> {
     let mut editor = Editor::new();
     let mut history = load_history(history_limit, store);
     let mut decoder = Decoder::new();
+    let mut search: Option<Search> = None;
     let stdin = io::stdin();
     let mut stdin = stdin.lock();
     let mut buffer = [0u8; 1024];
 
     loop {
-        draw(&editor)?;
+        draw(&editor, search.as_ref())?;
         let submitted = loop {
             let count = stdin.read(&mut buffer)?;
             if count == 0 {
@@ -70,6 +72,33 @@ fn interactive(history_limit: usize, store: Option<&Store>) -> io::Result<()> {
             decoder.push(&buffer[..count]);
             let mut submitted = None;
             while let Some(key) = decoder.next() {
+                if search.is_some() {
+                    let mut finish = None;
+                    if let Some(active) = search.as_mut() {
+                        match key {
+                            Key::Char(c) => active.push(c, &history, &mut editor),
+                            Key::Backspace => active.backspace(&history, &mut editor),
+                            Key::CtrlR => active.next(&mut editor),
+                            Key::Enter => finish = Some(true),
+                            Key::Esc | Key::CtrlC => finish = Some(false),
+                            _ => {}
+                        }
+                    }
+                    match finish {
+                        Some(true) => {
+                            search = None;
+                            history.reset();
+                        }
+                        Some(false) => {
+                            if let Some(active) = search.take() {
+                                active.cancel(&mut editor);
+                            }
+                            history.reset();
+                        }
+                        None => {}
+                    }
+                    continue;
+                }
                 match key {
                     Key::Enter => {
                         submitted = Some(editor.take());
@@ -97,6 +126,11 @@ fn interactive(history_limit: usize, store: Option<&Store>) -> io::Result<()> {
                     Key::CtrlK => editor.kill_to_end(),
                     Key::CtrlW => editor.kill_word_back(),
                     Key::CtrlY => editor.yank(),
+                    Key::CtrlR => {
+                        let mut active = Search::start(&editor);
+                        active.refresh(&history, &mut editor);
+                        search = Some(active);
+                    }
                     Key::CtrlP => {
                         if editor.rows() == 1 {
                             if let Some(entry) = history.previous(editor.text()) {
@@ -148,6 +182,7 @@ fn interactive(history_limit: usize, store: Option<&Store>) -> io::Result<()> {
             if let Some(line) = submitted {
                 break line;
             }
+            draw(&editor, search.as_ref())?;
         };
 
         let Some(action) = handle(&submitted, &mut history)? else {
@@ -315,10 +350,27 @@ fn truncate_left(text: &str, width: usize) -> String {
     tail
 }
 
-fn draw(editor: &Editor) -> io::Result<()> {
+fn draw(editor: &Editor, search: Option<&Search>) -> io::Result<()> {
     let columns = platform::columns().max(20);
-    let prompt = format!("{}\n> ", cwd_prompt());
-    let prompt_width = 2;
+    let (prompt, prompt_width) = if let Some(search) = search {
+        let mut query: String = search.query().to_owned();
+        let limit = columns.saturating_sub(24).max(4);
+        if query.chars().count() > limit {
+            query = query
+                .chars()
+                .rev()
+                .take(limit)
+                .collect::<Vec<_>>()
+                .into_iter()
+                .rev()
+                .collect();
+        }
+        let last = format!("(reverse-i-search)`{query}': ");
+        let width = last.chars().map(char_width).sum();
+        (format!("{}\n{last}", cwd_prompt()), width)
+    } else {
+        (format!("{}\n> ", cwd_prompt()), 2)
+    };
     let layout = layout(editor, columns, prompt_width);
 
     let mut frame = String::with_capacity(editor.text().len() + 64);
@@ -463,7 +515,8 @@ fn print_help() {
   !!           repeat the previous command
   exit         leave the shell
 
-Editing: arrows, Ctrl-A/E (not bound), Alt-B/F by word, Ctrl-U/K/W kill,
-Ctrl-Y yank, Tab completion, Up/Down history, Alt-Enter newline, Ctrl-L clear."
+Editing: arrows, Alt-B/F by word, Ctrl-U/K/W kill, Ctrl-Y yank, Tab
+completion, Up/Down history, Ctrl-R fuzzy search, Alt-Enter newline, Ctrl-L
+clear."
     );
 }
