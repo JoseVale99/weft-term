@@ -323,6 +323,7 @@ mod windows_glue {
 
     pub const S_OK: HRESULT = 0;
     pub const WAIT_OBJECT_0: u32 = 0;
+    pub const ERROR_INSUFFICIENT_BUFFER: i32 = 122;
     pub const EXTENDED_STARTUPINFO_PRESENT: u32 = 0x0008_0000;
     pub const PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE: usize = 0x0002_0016;
     pub const INFINITE: u32 = 0xFFFF_FFFF;
@@ -398,6 +399,7 @@ mod windows_glue {
             flags: u32,
             size: *mut usize,
         ) -> Bool;
+        fn DeleteProcThreadAttributeList(list: *mut core::ffi::c_void);
         fn UpdateProcThreadAttribute(
             list: *mut core::ffi::c_void,
             flags: u32,
@@ -490,16 +492,28 @@ mod windows_glue {
         /// Spawns a child attached to this console. Returns the process handle.
         pub fn spawn(&self, command_line: &[u16]) -> io::Result<StdHandle> {
             let mut list_size = 0usize;
-            // SAFETY: the first call only measures; NULL list is documented.
-            if unsafe {
+            // SAFETY: a NULL list only asks for the required size.
+            let measured = unsafe {
                 InitializeProcThreadAttributeList(std::ptr::null_mut(), 1, 0, &mut list_size)
-            } == 0
-            {
-                return Err(io::Error::last_os_error());
+            };
+            if measured == 0 {
+                // The documented answer to the measuring call is exactly
+                // ERROR_INSUFFICIENT_BUFFER, with the size already written.
+                let error = io::Error::last_os_error();
+                if error.raw_os_error() != Some(ERROR_INSUFFICIENT_BUFFER) {
+                    return Err(error);
+                }
             }
-            let mut list = vec![0u8; list_size];
-            let list = list.as_mut_ptr().cast::<core::ffi::c_void>();
-            // SAFETY: the buffer was sized by the measuring call.
+            if list_size == 0 {
+                return Err(io::Error::other(
+                    "InitializeProcThreadAttributeList reported no size",
+                ));
+            }
+            // The attribute list is a chain of pointer-sized nodes, so its
+            // backing store is aligned like one instead of like bytes.
+            let mut storage = vec![0usize; list_size.div_ceil(std::mem::size_of::<usize>())];
+            let list = storage.as_mut_ptr().cast::<core::ffi::c_void>();
+            // SAFETY: the buffer is sized and aligned for one attribute.
             if unsafe { InitializeProcThreadAttributeList(list, 1, 0, &mut list_size) } == 0 {
                 return Err(io::Error::last_os_error());
             }
@@ -518,7 +532,10 @@ mod windows_glue {
                 )
             } == 0
             {
-                return Err(io::Error::last_os_error());
+                let error = io::Error::last_os_error();
+                // SAFETY: the list is initialized and no longer used.
+                unsafe { DeleteProcThreadAttributeList(list) };
+                return Err(error);
             }
 
             let mut command_line = command_line.to_vec();
@@ -550,10 +567,17 @@ mod windows_glue {
                 )
             };
             if spawned == 0 {
-                return Err(io::Error::last_os_error());
+                let error = io::Error::last_os_error();
+                // SAFETY: the list is initialized and no longer used.
+                unsafe { DeleteProcThreadAttributeList(list) };
+                return Err(error);
             }
-            // SAFETY: the thread handle is owned; we only keep the process.
-            unsafe { CloseHandle(information.thread) };
+            // SAFETY: the list was initialized by this call and is not used
+            // again; the thread handle is owned and closed here.
+            unsafe {
+                DeleteProcThreadAttributeList(list);
+                CloseHandle(information.thread);
+            }
             Ok(information.process)
         }
 
