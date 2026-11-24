@@ -260,12 +260,12 @@ fn decode(field: &str) -> String {
             Some('n') => out.push('\n'),
             Some('r') => out.push('\r'),
             Some('t') => out.push('\t'),
-            Some('\\') => out.push('\\'),
-            Some(other) => {
+            Some(other) if other != '\\' => {
+                // An unknown pair stays verbatim, as does a trailing one.
                 out.push('\\');
                 out.push(other);
             }
-            None => out.push('\\'),
+            _ => out.push('\\'),
         }
     }
     out

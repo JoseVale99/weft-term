@@ -103,6 +103,7 @@ pub struct Workflow {
 
 impl Workflow {
     /// Parameter names used by the command, sorted and without repeats.
+    #[must_use]
     pub fn placeholders(&self) -> Vec<String> {
         let mut names = Vec::new();
         let mut rest = self.command.as_str();
@@ -126,6 +127,9 @@ impl Workflow {
     ///
     /// Values are inserted verbatim: quoting is the caller's responsibility,
     /// because only the caller knows the target shell.
+    ///
+    /// # Errors
+    /// Unknown parameter names or malformed placeholders.
     pub fn expand(&self, values: &[(&str, &str)]) -> Result<String, Error> {
         let mut out = String::with_capacity(self.command.len());
         let mut rest = self.command.as_str();
@@ -208,6 +212,9 @@ impl Config {
     ///
     /// A missing file yields the default configuration: first runs must not
     /// fail because the user has not created anything yet.
+    ///
+    /// # Errors
+    /// Unreadable files, malformed TOML or values outside their ranges.
     pub fn load(path: impl AsRef<Path>) -> Result<Self, Error> {
         let path = path.as_ref();
         let text = match fs::read_to_string(path) {
@@ -232,6 +239,9 @@ impl Config {
     ///
     /// The file is written to a sibling temporary file and renamed, so a crash
     /// never leaves a half-written configuration behind.
+    ///
+    /// # Errors
+    /// Unwritable locations or serialisation failures.
     pub fn save(&self, path: impl AsRef<Path>) -> Result<(), Error> {
         let path = path.as_ref();
         let text = toml::to_string_pretty(self).map_err(|source| Error::Write {
@@ -256,6 +266,9 @@ impl Config {
     }
 
     /// Checks every value is inside its accepted range.
+    ///
+    /// # Errors
+    /// The first invalid field found.
     pub fn validate(&self) -> Result<(), Error> {
         if !(100..=1_000_000).contains(&self.terminal.scrollback) {
             return Err(Error::Invalid {

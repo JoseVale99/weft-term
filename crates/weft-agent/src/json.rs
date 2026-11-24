@@ -192,7 +192,7 @@ impl Parser {
             entries.push((key, value));
             self.skip_whitespace();
             match self.next() {
-                Some(',') => continue,
+                Some(',') => {}
                 Some('}') => return Ok(Value::Object(entries)),
                 Some(_) => return Err(self.error("expected , or }")),
                 None => return Err(self.error("unexpected end of input")),
@@ -212,7 +212,7 @@ impl Parser {
             items.push(self.value()?);
             self.skip_whitespace();
             match self.next() {
-                Some(',') => continue,
+                Some(',') => {}
                 Some(']') => return Ok(Value::Array(items)),
                 Some(_) => return Err(self.error("expected , or ]")),
                 None => return Err(self.error("unexpected end of input")),
@@ -351,7 +351,13 @@ fn write_string(text: &str, out: &mut String) {
             '\u{8}' => out.push_str("\\b"),
             '\u{c}' => out.push_str("\\f"),
             c if (c as u32) < 0x20 => {
-                out.push_str(&format!("\\u{:04x}", c as u32));
+                const HEX: &[u8; 16] = b"0123456789abcdef";
+                let code = c as u32;
+                out.push_str("\\u");
+                out.push(HEX[((code >> 12) & 0xF) as usize] as char);
+                out.push(HEX[((code >> 8) & 0xF) as usize] as char);
+                out.push(HEX[((code >> 4) & 0xF) as usize] as char);
+                out.push(HEX[(code & 0xF) as usize] as char);
             }
             c => out.push(c),
         }

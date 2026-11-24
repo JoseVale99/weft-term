@@ -128,6 +128,23 @@ pub struct StreamParser {
     calls: Vec<ToolCall>,
 }
 
+/// Clamps a JSON tool-call index to a usable slot, or zero.
+///
+/// The comparison keeps precision worries away: any JSON index a real provider
+/// emits is far below the f64 mantissa limit.
+fn clamp_index(index: f64) -> usize {
+    if index.is_finite() && index >= 0.0 && index < 2f64.powi(52) {
+        // The bounds guarantee a finite, non-negative integral value, so the
+        // cast is exact.
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        {
+            index as usize
+        }
+    } else {
+        0
+    }
+}
+
 impl StreamParser {
     /// Creates an empty parser.
     pub fn new() -> Self {
@@ -198,17 +215,19 @@ impl StreamParser {
             let index = item
                 .get("index")
                 .and_then(Value::as_f64)
-                .map_or(0, |index| index.max(0.0) as usize);
+                // The index is a f64 from JSON; negative or fractional
+                // values cannot name a slot, so fall back to zero.
+                .map_or(0, clamp_index);
             while self.calls.len() <= index {
                 self.calls.push(ToolCall::default());
             }
             let call = &mut self.calls[index];
             if let Some(id) = item.get("id").and_then(Value::as_str) {
-                call.id = id.to_owned();
+                id.clone_into(&mut call.id);
             }
             if let Some(function) = item.get("function") {
                 if let Some(name) = function.get("name").and_then(Value::as_str) {
-                    call.name = name.to_owned();
+                    name.clone_into(&mut call.name);
                 }
                 if let Some(arguments) = function.get("arguments").and_then(Value::as_str) {
                     call.arguments.push_str(arguments);

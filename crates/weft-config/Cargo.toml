@@ -12,5 +12,16 @@ serde = { version = "1.0.229", features = ["derive"] }
 thiserror = "2.0.21"
 toml = "0.9.12"
 
-[lints]
-workspace = true
+[lints.rust]
+unsafe_code = "deny"
+missing_debug_implementations = "warn"
+unused_crate_dependencies = "warn"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+# Data-shaped API: accessors and Result-returning functions whose errors are
+# already documented in the type docs. Adding #[must_use] to every accessor is
+# noise, not signal.
+must_use_candidate = { level = "allow", priority = 1 }
+missing_errors_doc = { level = "allow", priority = 1 }
