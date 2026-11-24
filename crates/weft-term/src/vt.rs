@@ -30,7 +30,9 @@ impl Csi {
             self.params.push(0);
         }
         if let Some(last) = self.params.last_mut() {
-            *last = last.saturating_mul(10).saturating_add(u32::from(byte - b'0'));
+            *last = last
+                .saturating_mul(10)
+                .saturating_add(u32::from(byte - b'0'));
         }
     }
 
@@ -420,7 +422,11 @@ impl Terminal {
 }
 
 fn first_u16(params: &[u32]) -> u16 {
-    params.first().copied().unwrap_or(0).min(u32::from(u16::MAX)) as u16
+    params
+        .first()
+        .copied()
+        .unwrap_or(0)
+        .min(u32::from(u16::MAX)) as u16
 }
 
 /// 1-based parameter with a default, clamped to a sensible range.
@@ -485,7 +491,11 @@ fn resolve_sgr(params: &[u32]) -> Vec<Sgr> {
                     _ => None,
                 };
                 if let Some(color) = color {
-                    actions.push(if is_fg { Sgr::Fg(color) } else { Sgr::Bg(color) });
+                    actions.push(if is_fg {
+                        Sgr::Fg(color)
+                    } else {
+                        Sgr::Bg(color)
+                    });
                 }
             }
             _ => {}

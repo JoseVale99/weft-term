@@ -364,49 +364,27 @@ mod tests {
     #[test]
     fn a_single_pane_gets_every_row() {
         assert_eq!(heights(24, 1), [24]);
-        assert_eq!(
-            spans(24, 1),
-            [Span {
-                start: 0,
-                size: 24
-            }]
-        );
+        let slots = spans(24, 1);
+        assert_eq!(slots.len(), 1);
+        assert_eq!((slots[0].start, slots[0].size), (0, 24));
     }
 
     #[test]
     fn two_panes_share_the_rows_and_one_separator() {
         assert_eq!(heights(24, 2), [12, 11]);
-        assert_eq!(
-            spans(24, 2),
-            [
-                Span {
-                    start: 0,
-                    size: 12
-                },
-                Span {
-                    start: 13,
-                    size: 11
-                }
-            ]
-        );
+        let slots = spans(24, 2);
+        assert_eq!(slots.len(), 2);
+        assert_eq!((slots[0].start, slots[0].size), (0, 12));
+        assert_eq!((slots[1].start, slots[1].size), (13, 11));
         assert_eq!(heights(24, 2).iter().sum::<usize>() + 1, 24);
     }
 
     #[test]
     fn the_same_arithmetic_places_columns() {
-        assert_eq!(
-            spans(80, 2),
-            [
-                Span {
-                    start: 0,
-                    size: 40
-                },
-                Span {
-                    start: 41,
-                    size: 39
-                }
-            ]
-        );
+        let slots = spans(80, 2);
+        assert_eq!(slots.len(), 2);
+        assert_eq!((slots[0].start, slots[0].size), (0, 40));
+        assert_eq!((slots[1].start, slots[1].size), (41, 39));
     }
 
     #[test]
@@ -420,19 +398,13 @@ mod tests {
     #[test]
     fn a_single_leaf_fills_the_area() {
         let tree = SplitTree::new(7);
-        assert_eq!(
-            tree.layout(area()).panes,
-            [(
-                7,
-                Rect {
-                    x: 0,
-                    y: 0,
-                    width: 80,
-                    height: 20
-                }
-            )]
-        );
-        assert!(tree.layout(area()).separators.is_empty());
+        let layout = tree.layout(area());
+        assert_eq!(layout.panes.len(), 1);
+        assert_eq!(layout.panes[0].0, 7);
+        let rect = layout.panes[0].1;
+        assert_eq!((rect.x, rect.y), (0, 0));
+        assert_eq!((rect.width, rect.height), (80, 20));
+        assert!(layout.separators.is_empty());
     }
 
     #[test]
@@ -443,55 +415,32 @@ mod tests {
         assert_eq!(tree.leaves(), [1, 2, 3]);
 
         let layout = tree.layout(area());
-        assert_eq!(
-            layout.panes,
-            [
-                (
-                    1,
-                    Rect {
-                        x: 0,
-                        y: 0,
-                        width: 80,
-                        height: 10
-                    }
-                ),
-                (
-                    2,
-                    Rect {
-                        x: 0,
-                        y: 11,
-                        width: 40,
-                        height: 9
-                    }
-                ),
-                (
-                    3,
-                    Rect {
-                        x: 41,
-                        y: 11,
-                        width: 39,
-                        height: 9
-                    }
-                ),
-            ]
-        );
-        assert_eq!(
-            layout.separators,
-            [
-                Segment {
-                    orientation: Orientation::SideBySide,
-                    x: 40,
-                    y: 11,
-                    length: 9
-                },
-                Segment {
-                    orientation: Orientation::Stacked,
-                    x: 0,
-                    y: 10,
-                    length: 80
-                },
-            ]
-        );
+        assert_eq!(layout.panes.len(), 3);
+        assert_eq!(layout.panes[0].0, 1);
+        assert_eq!(layout.panes[1].0, 2);
+        assert_eq!(layout.panes[2].0, 3);
+
+        let top = layout.panes[0].1;
+        assert_eq!((top.x, top.y), (0, 0));
+        assert_eq!((top.width, top.height), (80, 10));
+
+        let bottom_left = layout.panes[1].1;
+        assert_eq!((bottom_left.x, bottom_left.y), (0, 11));
+        assert_eq!((bottom_left.width, bottom_left.height), (40, 9));
+
+        let bottom_right = layout.panes[2].1;
+        assert_eq!((bottom_right.x, bottom_right.y), (41, 11));
+        assert_eq!((bottom_right.width, bottom_right.height), (39, 9));
+
+        assert_eq!(layout.separators.len(), 2);
+        let vertical = layout.separators[0];
+        assert_eq!(vertical.orientation, Orientation::SideBySide);
+        assert_eq!((vertical.x, vertical.y), (40, 11));
+        assert_eq!(vertical.length, 9);
+        let horizontal = layout.separators[1];
+        assert_eq!(horizontal.orientation, Orientation::Stacked);
+        assert_eq!((horizontal.x, horizontal.y), (0, 10));
+        assert_eq!(horizontal.length, 80);
     }
 
     #[test]

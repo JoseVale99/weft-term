@@ -262,9 +262,7 @@ impl Editor {
         self.text[self.cursor..]
             .grapheme_indices(true)
             .next()
-            .map(|(offset, grapheme)| {
-                (self.cursor + offset, self.cursor + offset + grapheme.len())
-            })
+            .map(|(offset, grapheme)| (self.cursor + offset, self.cursor + offset + grapheme.len()))
     }
 
     fn kill(&mut self, range: std::ops::Range<usize>) {
@@ -468,10 +466,10 @@ mod tests {
         let candidates = vec!["cargo".to_owned(), "cargo-test".to_owned()];
         assert_eq!(editor.complete(&candidates), Completion::Inserted);
         assert_eq!(editor.text(), "cargo");
-        assert_eq!(editor.complete(&candidates), Completion::Ambiguous(vec![
-            "cargo".to_owned(),
-            "cargo-test".to_owned()
-        ]));
+        assert_eq!(
+            editor.complete(&candidates),
+            Completion::Ambiguous(vec!["cargo".to_owned(), "cargo-test".to_owned()])
+        );
     }
 
     #[test]

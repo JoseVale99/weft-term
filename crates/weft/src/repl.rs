@@ -150,14 +150,18 @@ fn interactive(history_limit: usize, store: Option<&Store>) -> io::Result<()> {
                         }
                     }
                     Key::Up => {
-                        if editor.rows() == 1 && let Some(entry) = history.previous(editor.text()) {
+                        if editor.rows() == 1
+                            && let Some(entry) = history.previous(editor.text())
+                        {
                             editor.set_text(entry);
                         } else {
                             editor.move_up();
                         }
                     }
                     Key::Down => {
-                        if editor.rows() == 1 && let Some(entry) = history.next() {
+                        if editor.rows() == 1
+                            && let Some(entry) = history.next()
+                        {
                             editor.set_text(entry);
                         } else {
                             editor.move_down();
@@ -285,12 +289,7 @@ fn run_line(line: &str, history: &mut History, store: Option<&Store>) -> io::Res
         .unwrap_or_default();
     let block = execute(line)?;
     if let Some(store) = store {
-        let _ = store.append_session(&SessionEntry::now(
-            cwd,
-            line,
-            block.code,
-            block.elapsed_ms,
-        ));
+        let _ = store.append_session(&SessionEntry::now(cwd, line, block.code, block.elapsed_ms));
     }
     Ok(())
 }
@@ -443,7 +442,10 @@ fn layout(editor: &Editor, columns: usize, prompt_width: usize) -> Layout {
 }
 
 fn completions(history: &History) -> Vec<String> {
-    let mut candidates: Vec<String> = BUILTINS.iter().map(|builtin| (*builtin).to_owned()).collect();
+    let mut candidates: Vec<String> = BUILTINS
+        .iter()
+        .map(|builtin| (*builtin).to_owned())
+        .collect();
     candidates.extend(history.entries().map(str::to_owned));
     candidates.extend(executables().iter().cloned());
     if let Ok(entries) = fs::read_dir(".") {

@@ -50,10 +50,7 @@ pub fn specs() -> Vec<ToolSpec> {
             description: "Propose a shell command. It is never executed without approval.",
             parameters: object(
                 vec![
-                    (
-                        "command",
-                        string_property("Exact command line to run."),
-                    ),
+                    ("command", string_property("Exact command line to run.")),
                     (
                         "reason",
                         string_property("Why the command helps with the task."),

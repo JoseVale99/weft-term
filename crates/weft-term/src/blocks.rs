@@ -10,7 +10,7 @@
 
 use core::fmt;
 
-use crate::osc::{cwd_from_uri, Event};
+use crate::osc::{Event, cwd_from_uri};
 
 /// Stable identifier for a block within one session.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]

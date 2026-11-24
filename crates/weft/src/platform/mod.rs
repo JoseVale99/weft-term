@@ -12,11 +12,7 @@ mod unix;
 mod windows;
 
 #[cfg(unix)]
-pub use unix::{
-    columns, command, default_shell, enter_raw, home, interactive, is_interactive,
-};
+pub use unix::{columns, command, default_shell, enter_raw, home, interactive, is_interactive};
 
 #[cfg(windows)]
-pub use windows::{
-    columns, command, default_shell, enter_raw, home, interactive, is_interactive,
-};
+pub use windows::{columns, command, default_shell, enter_raw, home, interactive, is_interactive};

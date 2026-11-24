@@ -30,7 +30,12 @@ pub struct SessionEntry {
 
 impl SessionEntry {
     /// Creates an entry stamped with the current time.
-    pub fn now(cwd: impl Into<String>, command: impl Into<String>, exit: i32, duration_ms: u64) -> Self {
+    pub fn now(
+        cwd: impl Into<String>,
+        command: impl Into<String>,
+        exit: i32,
+        duration_ms: u64,
+    ) -> Self {
         Self {
             at: unix_time(),
             exit,
@@ -175,8 +180,7 @@ impl Store {
             ) else {
                 continue;
             };
-            let (Ok(at), Ok(exit), Ok(duration_ms)) =
-                (at.parse(), exit.parse(), duration.parse())
+            let (Ok(at), Ok(exit), Ok(duration_ms)) = (at.parse(), exit.parse(), duration.parse())
             else {
                 continue;
             };
@@ -281,7 +285,9 @@ mod tests {
     fn history_round_trips_multiline_commands() {
         let (store, root) = store("roundtrip");
         store.append_history("echo one").unwrap();
-        store.append_history("for i in 1 2\ndo echo $i\ndone").unwrap();
+        store
+            .append_history("for i in 1 2\ndo echo $i\ndone")
+            .unwrap();
 
         let loaded = store.load_history(10).unwrap();
         assert_eq!(loaded, ["echo one", "for i in 1 2\ndo echo $i\ndone"]);

@@ -113,10 +113,7 @@ fn write_rows(view: &PaneView<'_>, theme: &Theme, out: &mut String) {
 fn separator_style(theme: &Theme, out: &mut String) {
     let (red, green, blue) = theme.palette[8];
     let (br, bg, bb) = theme.background;
-    let _ = write!(
-        out,
-        "\x1b[0;38;2;{red};{green};{blue};48;2;{br};{bg};{bb}m"
-    );
+    let _ = write!(out, "\x1b[0;38;2;{red};{green};{blue};48;2;{br};{bg};{bb}m");
 }
 
 fn separate_horizontal(x: usize, y: usize, length: usize, theme: &Theme, out: &mut String) {

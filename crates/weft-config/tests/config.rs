@@ -1,5 +1,8 @@
 use std::path::PathBuf;
 
+use serde as _;
+use thiserror as _;
+use toml as _;
 use weft_config::{Config, Error};
 
 fn temporary(name: &str) -> PathBuf {

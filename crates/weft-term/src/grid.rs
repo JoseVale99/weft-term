@@ -183,7 +183,11 @@ impl Grid {
     }
 
     fn screen(&self) -> &Screen {
-        if self.alt_active { &self.alt } else { &self.main }
+        if self.alt_active {
+            &self.alt
+        } else {
+            &self.main
+        }
     }
 
     fn screen_mut(&mut self) -> &mut Screen {
@@ -230,7 +234,13 @@ impl Grid {
         self.scroll_bottom = rows - 1;
     }
 
-    fn resized(screen: &Screen, old_cols: usize, old_rows: usize, cols: usize, rows: usize) -> Screen {
+    fn resized(
+        screen: &Screen,
+        old_cols: usize,
+        old_rows: usize,
+        cols: usize,
+        rows: usize,
+    ) -> Screen {
         let mut next = Screen::new(cols, rows);
         let copy_rows = old_rows.min(rows);
         let copy_cols = old_cols.min(cols);
@@ -397,7 +407,11 @@ impl Grid {
 
     pub fn back_tab(&mut self) {
         let x = self.screen().cursor.x;
-        self.screen_mut().cursor.x = if x % 8 == 0 { x.saturating_sub(8) } else { x - (x % 8) };
+        self.screen_mut().cursor.x = if x % 8 == 0 {
+            x.saturating_sub(8)
+        } else {
+            x - (x % 8)
+        };
         self.screen_mut().cursor.pending_wrap = false;
     }
 
@@ -767,11 +781,7 @@ pub fn char_width(ch: char) -> usize {
     if is_combining(cp) {
         return 0;
     }
-    if is_wide(cp) {
-        2
-    } else {
-        1
-    }
+    if is_wide(cp) { 2 } else { 1 }
 }
 
 fn is_combining(cp: u32) -> bool {

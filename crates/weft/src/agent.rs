@@ -228,7 +228,10 @@ fn propose(agent: &Agent, command: &str, reason: &str) -> io::Result<String> {
         io::stdout().flush()?;
         let mut line = String::new();
         io::stdin().read_line(&mut line)?;
-        Some(matches!(line.trim().to_ascii_lowercase().as_str(), "y" | "yes"))
+        Some(matches!(
+            line.trim().to_ascii_lowercase().as_str(),
+            "y" | "yes"
+        ))
     };
     let proposal = Proposal::new(command, reason);
     let guard = Guard::new(agent.auto_approve);
@@ -280,7 +283,10 @@ fn send(request: &Request, key: Option<&str>) -> io::Result<Vec<Event>> {
         .and_then(|line| line.split_whitespace().nth(1))
         .and_then(|code| code.parse::<u16>().ok())
         .unwrap_or(0);
-    let body = if head.to_ascii_lowercase().contains("transfer-encoding: chunked") {
+    let body = if head
+        .to_ascii_lowercase()
+        .contains("transfer-encoding: chunked")
+    {
         dechunk(body)?
     } else {
         body.to_vec()
@@ -332,7 +338,10 @@ impl Endpoint {
 
 fn split_headers(raw: &[u8]) -> io::Result<(&str, &[u8])> {
     let marker = b"\r\n\r\n";
-    let Some(index) = raw.windows(marker.len()).position(|window| window == marker) else {
+    let Some(index) = raw
+        .windows(marker.len())
+        .position(|window| window == marker)
+    else {
         return Err(io::Error::other("malformed HTTP response: no header end"));
     };
     let head = std::str::from_utf8(&raw[..index])

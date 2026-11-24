@@ -81,7 +81,10 @@ pub fn matches(pattern: &str, candidate: &str) -> Option<Match> {
 ///
 /// Ties keep the original order, which makes the output stable for tests and
 /// for a palette that wants to preserve recency.
-pub fn rank<'a>(pattern: &str, candidates: impl IntoIterator<Item = &'a str>) -> Vec<(&'a str, Match)> {
+pub fn rank<'a>(
+    pattern: &str,
+    candidates: impl IntoIterator<Item = &'a str>,
+) -> Vec<(&'a str, Match)> {
     let mut scored: Vec<(&'a str, Match)> = candidates
         .into_iter()
         .filter_map(|candidate| matches(pattern, candidate).map(|found| (candidate, found)))

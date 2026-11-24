@@ -268,7 +268,14 @@ mod tests {
     fn arrows_are_decoded_in_both_forms() {
         assert_eq!(
             decode(b"\x1b[A\x1b[B\x1b[C\x1b[D\x1bOA\x1bOB"),
-            [Key::Up, Key::Down, Key::Right, Key::Left, Key::Up, Key::Down]
+            [
+                Key::Up,
+                Key::Down,
+                Key::Right,
+                Key::Left,
+                Key::Up,
+                Key::Down
+            ]
         );
     }
 

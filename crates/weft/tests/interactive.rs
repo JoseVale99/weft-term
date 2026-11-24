@@ -8,6 +8,9 @@ use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant};
 
+use weft_agent as _;
+use weft_config as _;
+use weft_store as _;
 use weft_term::pty::Session;
 
 fn collect(receiver: &mpsc::Receiver<Vec<u8>>, all: &mut String, limit: Duration) {
@@ -22,8 +25,7 @@ fn collect(receiver: &mpsc::Receiver<Vec<u8>>, all: &mut String, limit: Duration
 
 #[test]
 fn interactive_terminal_runs_a_command_and_exits() {
-    let mut session =
-        Session::spawn(env!("CARGO_BIN_EXE_weft"), &[], 80, 24).expect("start weft");
+    let mut session = Session::spawn(env!("CARGO_BIN_EXE_weft"), &[], 80, 24).expect("start weft");
 
     let mut master = session.try_clone_master().expect("clone master");
     let (sender, receiver) = mpsc::channel();
@@ -73,8 +75,7 @@ fn interactive_terminal_runs_a_command_and_exits() {
 
 #[test]
 fn the_palette_opens_a_second_tab() {
-    let mut session =
-        Session::spawn(env!("CARGO_BIN_EXE_weft"), &[], 80, 24).expect("start weft");
+    let mut session = Session::spawn(env!("CARGO_BIN_EXE_weft"), &[], 80, 24).expect("start weft");
 
     let mut master = session.try_clone_master().expect("clone master");
     let (sender, receiver) = mpsc::channel();
@@ -110,7 +111,10 @@ fn the_palette_opens_a_second_tab() {
         collect(&receiver, &mut output, Duration::from_millis(200));
         seen = output.contains("43-tab");
     }
-    assert!(seen, "command did not run in the new tab; terminal said:\n{output}");
+    assert!(
+        seen,
+        "command did not run in the new tab; terminal said:\n{output}"
+    );
 
     thread::sleep(Duration::from_millis(500));
 
@@ -133,8 +137,7 @@ fn the_palette_opens_a_second_tab() {
 
 #[test]
 fn a_pane_splits_and_runs_a_command() {
-    let mut session =
-        Session::spawn(env!("CARGO_BIN_EXE_weft"), &[], 80, 24).expect("start weft");
+    let mut session = Session::spawn(env!("CARGO_BIN_EXE_weft"), &[], 80, 24).expect("start weft");
 
     let mut master = session.try_clone_master().expect("clone master");
     let (sender, receiver) = mpsc::channel();
@@ -172,7 +175,10 @@ fn a_pane_splits_and_runs_a_command() {
         collect(&receiver, &mut output, Duration::from_millis(200));
         seen = output.contains("44-split");
     }
-    assert!(seen, "command did not run in the split pane; terminal said:\n{output}");
+    assert!(
+        seen,
+        "command did not run in the split pane; terminal said:\n{output}"
+    );
 
     // Close the split pane, then the remaining one.
     thread::sleep(Duration::from_millis(500));
@@ -189,13 +195,15 @@ fn a_pane_splits_and_runs_a_command() {
         }
         thread::sleep(Duration::from_millis(50));
     }
-    assert!(exited, "split session did not exit; terminal said:\n{output}");
+    assert!(
+        exited,
+        "split session did not exit; terminal said:\n{output}"
+    );
 }
 
 #[test]
 fn a_pane_splits_to_the_right_and_runs_a_command() {
-    let mut session =
-        Session::spawn(env!("CARGO_BIN_EXE_weft"), &[], 80, 24).expect("start weft");
+    let mut session = Session::spawn(env!("CARGO_BIN_EXE_weft"), &[], 80, 24).expect("start weft");
 
     let mut master = session.try_clone_master().expect("clone master");
     let (sender, receiver) = mpsc::channel();
@@ -233,7 +241,10 @@ fn a_pane_splits_to_the_right_and_runs_a_command() {
         collect(&receiver, &mut output, Duration::from_millis(200));
         seen = output.contains("55-right");
     }
-    assert!(seen, "command did not run in the right pane; terminal said:\n{output}");
+    assert!(
+        seen,
+        "command did not run in the right pane; terminal said:\n{output}"
+    );
 
     thread::sleep(Duration::from_millis(500));
     session.write(b"exit\r").expect("exit right pane");
@@ -254,8 +265,7 @@ fn a_pane_splits_to_the_right_and_runs_a_command() {
 
 #[test]
 fn panes_mix_vertical_and_horizontal_splits() {
-    let mut session =
-        Session::spawn(env!("CARGO_BIN_EXE_weft"), &[], 80, 24).expect("start weft");
+    let mut session = Session::spawn(env!("CARGO_BIN_EXE_weft"), &[], 80, 24).expect("start weft");
 
     let mut master = session.try_clone_master().expect("clone master");
     let (sender, receiver) = mpsc::channel();
@@ -299,7 +309,10 @@ fn panes_mix_vertical_and_horizontal_splits() {
         collect(&receiver, &mut output, Duration::from_millis(200));
         seen = output.contains("66-mixed");
     }
-    assert!(seen, "command did not run in the mixed pane; terminal said:\n{output}");
+    assert!(
+        seen,
+        "command did not run in the mixed pane; terminal said:\n{output}"
+    );
 
     thread::sleep(Duration::from_millis(500));
     session.write(b"exit\r").expect("exit mixed pane");
@@ -317,5 +330,8 @@ fn panes_mix_vertical_and_horizontal_splits() {
         }
         thread::sleep(Duration::from_millis(50));
     }
-    assert!(exited, "mixed session did not exit; terminal said:\n{output}");
+    assert!(
+        exited,
+        "mixed session did not exit; terminal said:\n{output}"
+    );
 }

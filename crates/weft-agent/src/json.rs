@@ -237,7 +237,9 @@ impl Parser {
     }
 
     fn escape(&mut self, out: &mut String) -> Result<(), JsonError> {
-        let escaped = self.next().ok_or_else(|| self.error("unterminated escape"))?;
+        let escaped = self
+            .next()
+            .ok_or_else(|| self.error("unterminated escape"))?;
         let c = match escaped {
             '"' => '"',
             '\\' => '\\',
@@ -277,8 +279,12 @@ impl Parser {
     fn hex4(&mut self) -> Result<u32, JsonError> {
         let mut value = 0;
         for _ in 0..4 {
-            let c = self.next().ok_or_else(|| self.error("short unicode escape"))?;
-            let digit = c.to_digit(16).ok_or_else(|| self.error("invalid hex digit"))?;
+            let c = self
+                .next()
+                .ok_or_else(|| self.error("short unicode escape"))?;
+            let digit = c
+                .to_digit(16)
+                .ok_or_else(|| self.error("invalid hex digit"))?;
             value = value * 16 + digit;
         }
         Ok(value)
@@ -289,10 +295,9 @@ impl Parser {
         if self.peek() == Some('-') {
             self.position += 1;
         }
-        while self
-            .peek()
-            .is_some_and(|c| c.is_ascii_digit() || c == '.' || c == 'e' || c == 'E' || c == '+' || c == '-')
-        {
+        while self.peek().is_some_and(|c| {
+            c.is_ascii_digit() || c == '.' || c == 'e' || c == 'E' || c == '+' || c == '-'
+        }) {
             self.position += 1;
         }
         let text: String = self.chars[start..self.position].iter().collect();
@@ -361,9 +366,15 @@ mod tests {
     #[test]
     fn parses_nested_documents() {
         let value = parse(r#"{"a":[1,true,null,"x"],"b":{"c":-2.5}}"#).unwrap();
-        assert_eq!(value.get("a").unwrap().index(0).unwrap().as_f64(), Some(1.0));
+        assert_eq!(
+            value.get("a").unwrap().index(0).unwrap().as_f64(),
+            Some(1.0)
+        );
         assert_eq!(value.get("a").unwrap().index(2), Some(&Value::Null));
-        assert_eq!(value.get("b").unwrap().get("c").unwrap().as_f64(), Some(-2.5));
+        assert_eq!(
+            value.get("b").unwrap().get("c").unwrap().as_f64(),
+            Some(-2.5)
+        );
     }
 
     #[test]

@@ -22,10 +22,7 @@ pub struct Provider {
 impl Provider {
     /// Endpoint for chat completions.
     pub fn endpoint(&self) -> String {
-        format!(
-            "{}/chat/completions",
-            self.base_url.trim_end_matches('/')
-        )
+        format!("{}/chat/completions", self.base_url.trim_end_matches('/'))
     }
 }
 
@@ -66,8 +63,7 @@ impl Request {
         if provider.model.trim().is_empty() {
             return Err(RequestError::EmptyModel);
         }
-        if !(provider.base_url.starts_with("http://")
-            || provider.base_url.starts_with("https://"))
+        if !(provider.base_url.starts_with("http://") || provider.base_url.starts_with("https://"))
         {
             return Err(RequestError::InvalidBaseUrl);
         }

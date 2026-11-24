@@ -100,7 +100,8 @@ fn cwd_updates_open_prompt_but_not_closed_blocks() {
 fn foreign_sequences_are_ignored() {
     // Window titles, SGR attributes, an unknown OSC and an empty DCS: none of
     // them may produce events. The trailing prompt is the only real one.
-    let stream = b"\x1b]0;my title\x07\x1b[1;33m\x1b]1337;SetMark\x07\x1bPq#0;2;0;0;0\x1b\\\x1b]133;A\x07";
+    let stream =
+        b"\x1b]0;my title\x07\x1b[1;33m\x1b]1337;SetMark\x07\x1bPq#0;2;0;0;0\x1b\\\x1b]133;A\x07";
     let events = parse(stream, 2);
     assert_eq!(events, vec![Event::PromptStart]);
 }

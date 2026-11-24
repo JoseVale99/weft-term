@@ -3,7 +3,7 @@
 //! These run without a window and without a shell, which is what makes the
 //! renderer replaceable and the behavior reviewable.
 
-use weft_term::grid::{char_width, Color, Wide};
+use weft_term::grid::{Color, Wide, char_width};
 use weft_term::vt::Terminal;
 
 fn term(cols: usize, rows: usize) -> Terminal {
@@ -184,8 +184,8 @@ fn pty_session_runs_a_real_process() {
     use std::time::Duration;
     use weft_term::pty::Session;
 
-    let mut session = Session::spawn("sh", &["-c", "printf 'pty-ok\\n'"], 80, 24)
-        .expect("spawn pty session");
+    let mut session =
+        Session::spawn("sh", &["-c", "printf 'pty-ok\\n'"], 80, 24).expect("spawn pty session");
     let mut master = session.try_clone_master().expect("clone master");
     let (sender, receiver) = mpsc::channel();
     thread::spawn(move || {

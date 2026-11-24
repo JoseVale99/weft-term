@@ -241,9 +241,8 @@ pub fn run() -> io::Result<()> {
                         })
                 })
                 .collect();
-            let mut frame = String::with_capacity(
-                dimensions.0 * (dimensions.1 + STATUS_HEIGHT) * 4,
-            );
+            let mut frame =
+                String::with_capacity(dimensions.0 * (dimensions.1 + STATUS_HEIGHT) * 4);
             let leaves = tab.tree.leaves();
             let position = leaves
                 .iter()
@@ -391,7 +390,14 @@ fn apply(
 ) -> io::Result<()> {
     match command {
         Command::NewTab => {
-            match spawn_pane(*next_pane, *next_tab, shell, dimensions.0, dimensions.1, sender) {
+            match spawn_pane(
+                *next_pane,
+                *next_tab,
+                shell,
+                dimensions.0,
+                dimensions.1,
+                sender,
+            ) {
                 Ok(pane) => {
                     let pane_id = pane.id;
                     tabs.push(Tab {
