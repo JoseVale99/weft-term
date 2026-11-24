@@ -12,6 +12,7 @@
 mod agent;
 mod keys;
 mod platform;
+#[cfg(unix)]
 mod render;
 mod repl;
 mod theme;
@@ -172,6 +173,16 @@ fn themes() -> io::Result<()> {
             "{marker} {:<12} fg #{fr:02x}{fg:02x}{fb:02x} bg #{br:02x}{bg:02x}{bb:02x}",
             theme.name
         );
+        // ANSI 0..=15 as truecolor swatches: two cells per color.
+        for (index, (r, g, b)) in theme.palette.iter().enumerate() {
+            if index % 8 == 0 {
+                print!("{}   ", marker);
+            }
+            print!("\x1b[48;2;{r};{g};{b}m  \x1b[0m");
+            if index % 8 == 7 {
+                println!();
+            }
+        }
     }
     Ok(())
 }
