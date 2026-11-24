@@ -162,9 +162,10 @@ M3.
   propio PTY y su propio `Terminal`; el enfocado recibe la entrada y muestra el
   cursor. Un split anida donde está el foco, así que filas y columnas se
   combinan en la misma pestaña. La paleta crea, cambia y cierra pestañas y
-  paneles, alterna el tema y recorre los paneles. Cerrar un panel promueve a su
-  hermano. Un split se rechaza si deja un panel con menos de 3 filas o 20
-  columnas.
-- Los tamaños ajustables, la ventana GPU y ConPTY siguen pendientes. La ventana
-  requiere red para `winit`/`wgpu`/`glyphon`; ConPTY requiere las dependencias
-  de Windows, y Windows sigue usando el shell de bloques.
+  paneles, alterna el tema, recorre los paneles y ajusta el reparto con Grow
+  pane y Shrink pane. Cada split guarda un porcentaje (50/50 inicial, entre 10 y
+  90). Cerrar un panel promueve a su hermano. Un split se rechaza si deja un
+  panel con menos de 3 filas o 20 columnas.
+- La ventana GPU y ConPTY siguen pendientes. La ventana requiere red para
+  `winit`/`wgpu`/`glyphon`; ConPTY requiere las dependencias de Windows, y
+  Windows sigue usando el shell de bloques.
