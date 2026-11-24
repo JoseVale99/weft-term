@@ -154,8 +154,10 @@ M3.
 - `weft-agent` implementa conversación acotada, parser JSON estricto, petición
   OpenAI con streaming y lectura SSE, compuerta de aprobación, herramientas con
   sandbox de rutas y un ciclo acotado que devuelve los resultados al modelo. Su
-  transporte HTTP plano vive en `weft`; HTTPS requiere una decisión de
-  dependencias (TLS) y hoy se rechaza con un mensaje explícito.
+  transporte HTTP vive en `weft`: TCP plano y, para `https://`, TLS con
+  `rustls` usando las raíces webpki o el PEM indicado en `[agent] ca_file`
+  (para servidores con raíz propia). Un test e2e comprueba el intercambio TLS
+  contra `openssl s_server` con certificado autofirmado.
 - `weft workflow` lista y ejecuta comandos guardados con `{{parámetro}}`.
 - El front-end Unix tiene temas propios (`weft-dark`, `weft-light`), paleta de
   comandos en F1, pestañas y un árbol binario de splits. Cada panel tiene su

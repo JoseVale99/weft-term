@@ -67,6 +67,9 @@ pub struct Agent {
     pub model: Option<String>,
     /// Base URL for OpenAI-compatible providers.
     pub base_url: Option<String>,
+    /// Optional PEM file with extra trusted roots for HTTPS endpoints. When
+    /// absent, the built-in webpki roots are used.
+    pub ca_file: Option<String>,
     /// Never run a proposed command without asking. Defaults to false so an
     /// explicit opt-in is required to bypass the approval gate.
     pub auto_approve: bool,
