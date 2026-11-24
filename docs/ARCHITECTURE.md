@@ -169,3 +169,12 @@ M3.
 - La ventana GPU y ConPTY siguen pendientes. La ventana requiere red para
   `winit`/`wgpu`/`glyphon`; ConPTY requiere las dependencias de Windows, y
   Windows sigue usando el shell de bloques.
+
+## Calidad
+
+`cargo clippy --all-targets -- -D warnings` bloquea `clippy::all`. `pedantic`
+queda como opt-in por crate: en la capa FFI (`sys.rs`) y en el intérprete de
+escape produce decenas de avisos de estilo (`must_use_candidate`,
+`missing_errors_doc`, conversiones numéricas) que no señalan defectos y con
+`-D warnings` convierten el gate en ruido. Se puede reactivar por lint concreto
+cuando el código lo justifique.

@@ -199,7 +199,11 @@ impl Drop for RawMode {
     fn drop(&mut self) {
         // SAFETY: restores a snapshot previously returned by `tcgetattr`.
         unsafe {
-            tcsetattr(self.fd, platform::TCSANOW, std::ptr::addr_of!(self.original));
+            tcsetattr(
+                self.fd,
+                platform::TCSANOW,
+                std::ptr::addr_of!(self.original),
+            );
         }
     }
 }

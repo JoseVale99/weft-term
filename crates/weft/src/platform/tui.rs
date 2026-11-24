@@ -226,21 +226,17 @@ pub fn run() -> io::Result<()> {
                 height: dimensions.1,
             };
             let layout = tab.tree.layout(area);
-            let views: Vec<PaneView<'_>> = layout
-                .panes
-                .iter()
-                .filter_map(|(id, rect)| {
-                    tab.panes
-                        .iter()
-                        .find(|pane| pane.id == *id)
-                        .map(|pane| PaneView {
-                            grid: &pane.terminal.grid,
-                            active: *id == tab.focus,
-                            row: rect.y,
-                            column: rect.x,
-                        })
-                })
-                .collect();
+            let mut views = Vec::with_capacity(layout.panes.len());
+            for (id, rect) in &layout.panes {
+                if let Some(pane) = tab.panes.iter().find(|pane| pane.id == *id) {
+                    views.push(PaneView {
+                        grid: &pane.terminal.grid,
+                        active: *id == tab.focus,
+                        row: rect.y,
+                        column: rect.x,
+                    });
+                }
+            }
             let mut frame =
                 String::with_capacity(dimensions.0 * (dimensions.1 + STATUS_HEIGHT) * 4);
             let leaves = tab.tree.leaves();
@@ -443,13 +439,16 @@ fn apply(
                 *notice = "pane is no longer available".to_owned();
                 return Ok(());
             }
-            let fits = preview.layout(area).panes.iter().any(|(id, rect)| {
-                *id == *next_pane
-                    && match orientation {
+            let candidate = preview.layout(area);
+            let mut fits = false;
+            for (id, rect) in &candidate.panes {
+                if *id == *next_pane {
+                    fits = match orientation {
                         Orientation::Stacked => rect.height >= 3,
                         Orientation::SideBySide => rect.width >= 20,
-                    }
-            });
+                    };
+                }
+            }
             if !fits {
                 *notice = format!(
                     "not enough room for another pane to the {}",
@@ -457,13 +456,11 @@ fn apply(
                 );
                 return Ok(());
             }
-            let (cols, rows) = tab
-                .panes
-                .iter()
-                .find(|pane| pane.id == tab.focus)
-                .map_or((dimensions.0, dimensions.1), |pane| {
-                    (pane.terminal.grid.cols(), pane.terminal.grid.rows())
-                });
+            let focused = tab.panes.iter().find(|pane| pane.id == tab.focus);
+            let (cols, rows) = match focused {
+                Some(pane) => (pane.terminal.grid.cols(), pane.terminal.grid.rows()),
+                None => (dimensions.0, dimensions.1),
+            };
             match spawn_pane(*next_pane, tab.id, shell, cols, rows, sender) {
                 Ok(pane) => {
                     let id = pane.id;
