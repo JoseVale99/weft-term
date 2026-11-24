@@ -88,6 +88,7 @@ fn saving_and_loading_round_trips_every_field() {
             provider: Some("openai".to_owned()),
             model: Some("gpt-4.1".to_owned()),
             base_url: Some("https://example.test/v1".to_owned()),
+            ca_file: None,
             auto_approve: true,
         },
         workflows: vec![weft_config::Workflow {

@@ -8,6 +8,8 @@ use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant};
 
+use rustls as _;
+use webpki_roots as _;
 use weft_agent as _;
 use weft_config as _;
 use weft_store as _;
