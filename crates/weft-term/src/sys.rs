@@ -59,6 +59,7 @@ struct Termios {
     c_ospeed: u64,
 }
 
+#[cfg(unix)]
 #[repr(C)]
 #[derive(Clone, Copy, Default)]
 struct WinSize {
@@ -253,8 +254,8 @@ mod windows_glue {
         if unsafe { GetConsoleScreenBufferInfo(handle, &mut info) } == 0 {
             return Err(io::Error::last_os_error());
         }
-        let cols = i16::from(info.size.x).max(1);
-        let rows = i16::from(info.size.y).max(1);
+        let cols = info.size.x.max(1);
+        let rows = info.size.y.max(1);
         Ok((
             usize::try_from(cols).unwrap_or(1),
             usize::try_from(rows).unwrap_or(1),
@@ -264,6 +265,7 @@ mod windows_glue {
     /// Puts the console into raw input mode and enables VT output. The
     /// previous modes are restored on drop through `original_input` and
     /// `original_output`.
+    #[derive(Debug)]
     pub struct RawModes {
         input: StdHandle,
         output: StdHandle,
@@ -313,6 +315,9 @@ mod windows_glue {
 
     // -- pseudo console -----------------------------------------------------
 
+    // The aliases keep the names the Windows API documents; renaming them
+    // would only distance the code from its source of truth.
+    #[allow(clippy::upper_case_acronyms)]
     pub type HRESULT = i32;
     pub type Bool = i32;
 
@@ -322,8 +327,9 @@ mod windows_glue {
     pub const PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE: usize = 0x0002_0016;
     pub const INFINITE: u32 = 0xFFFF_FFFF;
 
+    #[allow(clippy::upper_case_acronyms)]
     #[repr(C)]
-    #[derive(Clone, Copy, Default)]
+    #[derive(Clone, Copy, Debug, Default)]
     pub struct HPCON(*mut core::ffi::c_void);
 
     #[repr(C)]
@@ -516,7 +522,7 @@ mod windows_glue {
             }
 
             let mut command_line = command_line.to_vec();
-            let mut startup = StartupInfoExW {
+            let startup = StartupInfoExW {
                 info: zeroed_startup_info(std::mem::size_of::<StartupInfoExW>() as u32),
                 attribute_list: list,
             };
@@ -552,6 +558,10 @@ mod windows_glue {
         }
 
         /// Whether the child exited. Returns its code when it did.
+        // The handle is an opaque kernel object that only its own API
+        // touches; `not_unsafe_ptr_arg_deref` cannot see the SAFETY contract
+        // documented above each call.
+        #[allow(clippy::not_unsafe_ptr_arg_deref)]
         pub fn try_wait(&self, process: StdHandle) -> io::Result<Option<u32>> {
             // SAFETY: the handle is owned and valid.
             if unsafe { WaitForSingleObject(process, 0) } != WAIT_OBJECT_0 {
@@ -566,6 +576,7 @@ mod windows_glue {
         }
 
         /// Terminates the child.
+        #[allow(clippy::not_unsafe_ptr_arg_deref)]
         pub fn kill(&self, process: StdHandle) {
             // SAFETY: the handle is owned; TerminateProcess is best effort and
             // the wait guarantees the handle is signalled before reuse.
@@ -622,16 +633,6 @@ mod windows_glue {
             std_output: std::ptr::null_mut(),
             std_error: std::ptr::null_mut(),
         }
-    }
-
-    /// Whether standard input is a console handle.
-    pub fn is_tty() -> bool {
-        let Ok(input) = std_handle(STD_INPUT_HANDLE) else {
-            return false;
-        };
-        let mut mode = 0u32;
-        // SAFETY: plain mode query.
-        unsafe { GetConsoleMode(input, &mut mode) != 0 }
     }
 }
 
