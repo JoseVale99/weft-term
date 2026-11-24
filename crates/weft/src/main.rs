@@ -18,6 +18,8 @@ use std::env;
 use std::io;
 use std::process::ExitCode;
 
+use weft_store::Store;
+
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 fn main() -> ExitCode {
@@ -27,6 +29,8 @@ fn main() -> ExitCode {
         Some("run") => run_command(&args[1..]),
         Some("shell") => repl::run(),
         Some("integration") => integration(&args[1..]),
+        Some("history") => history(&args[1..]),
+        Some("sessions") => sessions(&args[1..]),
         Some("help" | "--help" | "-h") => {
             print_help();
             Ok(())
@@ -90,6 +94,44 @@ fn integration(args: &[String]) -> io::Result<()> {
     Ok(())
 }
 
+fn history(args: &[String]) -> io::Result<()> {
+    let store = Store::open_default()?;
+    match args.first().map(String::as_str) {
+        Some("clear") => {
+            store.clear_history()?;
+            println!("weft: history cleared");
+        }
+        None | Some("list") => {
+            for (index, entry) in store.load_history(5_000)?.iter().enumerate() {
+                println!("{index:4}  {entry}");
+            }
+        }
+        Some(other) => eprintln!("weft: unknown history action `{other}` (list, clear)"),
+    }
+    Ok(())
+}
+
+fn sessions(args: &[String]) -> io::Result<()> {
+    let store = Store::open_default()?;
+    match args.first().map(String::as_str) {
+        Some("clear") => {
+            store.clear_sessions()?;
+            println!("weft: session log cleared");
+        }
+        None | Some("list") => {
+            for entry in store.sessions()? {
+                let command = entry.command.replace('\n', "\\n");
+                println!(
+                    "{}\t{:+}\t{} ms\t{}\t{}",
+                    entry.at, entry.exit, entry.duration_ms, entry.cwd, command
+                );
+            }
+        }
+        Some(other) => eprintln!("weft: unknown sessions action `{other}` (list, clear)"),
+    }
+    Ok(())
+}
+
 fn print_help() {
     println!(
         "\
@@ -101,11 +143,14 @@ Usage:
   weft run <command>    run one command and report its block
   weft shell            block shell without a pseudo-terminal
   weft integration <sh> print integration for bash, zsh or fish
+  weft history [clear]  list or clear the persistent command history
+  weft sessions [clear] list or clear the session log
   weft help             this message
   weft --version        version
 
 Environment:
   SHELL                 shell started by the interactive terminal
+  WEFT_DATA_DIR         override the directory for history and sessions
   RUST_LOG              log filter for internal diagnostics"
     );
 }

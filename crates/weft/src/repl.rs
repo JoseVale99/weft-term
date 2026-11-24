@@ -11,6 +11,7 @@ use std::path::Path;
 use std::sync::OnceLock;
 use std::time::Instant;
 
+use weft_store::{SessionEntry, Store};
 use weft_term::History;
 use weft_term::grid::char_width;
 use weft_term::input::Editor;
@@ -23,21 +24,36 @@ const BUILTINS: [&str; 5] = ["cd", "exit", "help", "history", "quit"];
 /// Runs the block shell.
 pub fn run() -> io::Result<()> {
     let history_limit = 5_000;
+    let store = Store::open_default().ok();
     if platform::is_interactive()
         && let Ok(_raw) = platform::enter_raw()
     {
-        return interactive(history_limit);
+        return interactive(history_limit, store.as_ref());
     }
-    line_mode(history_limit)
+    line_mode(history_limit, store.as_ref())
 }
 
-fn interactive(history_limit: usize) -> io::Result<()> {
+/// Restores history from disk so a new session starts where the last one ended.
+fn load_history(limit: usize, store: Option<&Store>) -> History {
+    let mut history = History::new(limit);
+    if let Some(store) = store {
+        if let Ok(entries) = store.load_history(limit) {
+            for entry in entries {
+                history.record(&entry);
+            }
+        }
+        let _ = store.compact_history(limit);
+    }
+    history
+}
+
+fn interactive(history_limit: usize, store: Option<&Store>) -> io::Result<()> {
     println!(
         "weft {} - block shell. Type `exit` to leave, `help` for commands.",
         env!("CARGO_PKG_VERSION")
     );
     let mut editor = Editor::new();
-    let mut history = History::new(history_limit);
+    let mut history = load_history(history_limit, store);
     let mut decoder = Decoder::new();
     let stdin = io::stdin();
     let mut stdin = stdin.lock();
@@ -139,20 +155,17 @@ fn interactive(history_limit: usize) -> io::Result<()> {
         };
         match action {
             Action::Exit => return Ok(()),
-            Action::Run(line) => {
-                history.record(&line);
-                execute(&line)?;
-            }
+            Action::Run(line) => run_line(&line, &mut history, store)?,
         }
     }
 }
 
-fn line_mode(history_limit: usize) -> io::Result<()> {
+fn line_mode(history_limit: usize, store: Option<&Store>) -> io::Result<()> {
     println!(
         "weft {} - block shell. Type `exit` to leave, `help` for commands.",
         env!("CARGO_PKG_VERSION")
     );
-    let mut history = History::new(history_limit);
+    let mut history = load_history(history_limit, store);
     loop {
         print!("{}\n> ", cwd_prompt());
         io::stdout().flush()?;
@@ -167,10 +180,7 @@ fn line_mode(history_limit: usize) -> io::Result<()> {
         };
         match action {
             Action::Exit => return Ok(()),
-            Action::Run(line) => {
-                history.record(&line);
-                execute(&line)?;
-            }
+            Action::Run(line) => run_line(&line, &mut history, store)?,
         }
     }
 }
@@ -221,8 +231,37 @@ fn handle(line: &str, history: &mut History) -> io::Result<Option<Action>> {
     Ok(Some(Action::Run(line.to_owned())))
 }
 
+/// A finished block.
+#[derive(Debug, Clone, Copy)]
+pub struct Block {
+    /// Exit code reported by the shell.
+    pub code: i32,
+    /// Wall-clock duration in milliseconds.
+    pub elapsed_ms: u64,
+}
+
+fn run_line(line: &str, history: &mut History, store: Option<&Store>) -> io::Result<()> {
+    history.record(line);
+    if let Some(store) = store {
+        let _ = store.append_history(line);
+    }
+    let cwd = env::current_dir()
+        .map(|path| path.display().to_string())
+        .unwrap_or_default();
+    let block = execute(line)?;
+    if let Some(store) = store {
+        let _ = store.append_session(&SessionEntry::now(
+            cwd,
+            line,
+            block.code,
+            block.elapsed_ms,
+        ));
+    }
+    Ok(())
+}
+
 /// Runs a single command line and prints its block footer.
-pub fn execute(line: &str) -> io::Result<()> {
+pub fn execute(line: &str) -> io::Result<Block> {
     let started = Instant::now();
     let status = platform::command(line).status()?;
     let elapsed = started.elapsed();
@@ -233,7 +272,10 @@ pub fn execute(line: &str) -> io::Result<()> {
         elapsed.as_millis(),
         line
     );
-    Ok(())
+    Ok(Block {
+        code,
+        elapsed_ms: u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX),
+    })
 }
 
 /// Runs a command line to completion and returns its exit code.

@@ -12,6 +12,7 @@ name = "weft"
 path = "src/main.rs"
 
 [dependencies]
+weft-store = { path = "../weft-store" }
 weft-term = { path = "../weft-term" }
 
 [lints]
