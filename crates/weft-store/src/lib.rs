@@ -312,7 +312,7 @@ mod tests {
         let (store, root) = store("empty");
         store.append_history("  ").unwrap();
         store.append_history("\n").unwrap();
-        assert!(store.load_history(10).unwrap().is_empty());
+        assert_eq!(store.load_history(10).unwrap().len(), 0);
         let _ = fs::remove_dir_all(root);
     }
 
@@ -343,7 +343,7 @@ mod tests {
         let (store, root) = store("clear");
         store.append_history("ls").unwrap();
         store.clear_history().unwrap();
-        assert!(store.load_history(10).unwrap().is_empty());
+        assert_eq!(store.load_history(10).unwrap().len(), 0);
         let _ = fs::remove_dir_all(root);
     }
 }

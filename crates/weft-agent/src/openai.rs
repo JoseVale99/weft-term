@@ -382,8 +382,8 @@ mod tests {
         let mut parser = StreamParser::new();
         let first = r#"data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","function":{"name":"read_file","arguments":"{\"pa"}}]}}]}"#;
         let second = r#"data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"th\":\"Cargo.toml\"}"}}]}}]}"#;
-        assert!(parser.push(&format!("{first}\n")).unwrap().is_empty());
-        assert!(parser.push(&format!("{second}\n")).unwrap().is_empty());
+        assert_eq!(parser.push(&format!("{first}\n")).unwrap().len(), 0);
+        assert_eq!(parser.push(&format!("{second}\n")).unwrap().len(), 0);
 
         let events = parser.push("data: [DONE]\n").unwrap();
         assert_eq!(
