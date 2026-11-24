@@ -12,7 +12,9 @@
 #![deny(missing_docs)]
 
 mod approval;
+mod json;
 mod message;
 
 pub use approval::{Decision, Guard, Proposal};
+pub use json::{JsonError, Value, parse};
 pub use message::{Conversation, Message, Role};
