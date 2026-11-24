@@ -105,6 +105,8 @@ pub enum Node {
     Split {
         /// Direction of this split.
         orientation: Orientation,
+        /// Percentage of the usable cells given to `first`, between 10 and 90.
+        ratio: u8,
         /// First child.
         first: Box<Node>,
         /// Second child.
@@ -133,6 +135,7 @@ impl Node {
                 let previous = Self::Leaf(*found);
                 *self = Self::Split {
                     orientation,
+                    ratio: 50,
                     first: Box::new(previous),
                     second: Box::new(Self::Leaf(id)),
                 };
@@ -143,6 +146,33 @@ impl Node {
                 first.split(focus, id, orientation) || second.split(focus, id, orientation)
             }
         }
+    }
+
+    fn resize(&mut self, focus: usize, delta: i16) -> bool {
+        let Self::Split {
+            ratio,
+            first,
+            second,
+            ..
+        } = self
+        else {
+            return false;
+        };
+        let in_first = first.contains(focus);
+        let in_second = second.contains(focus);
+        if !in_first && !in_second {
+            return false;
+        }
+        if first.resize(focus, delta) || second.resize(focus, delta) {
+            return true;
+        }
+        let step = if in_first { delta } else { -delta };
+        let next = (i16::from(*ratio) + step).clamp(10, 90);
+        let changed = u8::try_from(next).unwrap_or(*ratio) != *ratio;
+        if changed {
+            *ratio = u8::try_from(next).unwrap_or(*ratio);
+        }
+        changed
     }
 
     fn remove(&mut self, focus: usize) -> Option<usize> {
@@ -177,10 +207,11 @@ impl Node {
             Self::Leaf(id) => out.panes.push((*id, area)),
             Self::Split {
                 orientation,
+                ratio,
                 first,
                 second,
             } => {
-                let (lead, trail, separator) = split_area(area, *orientation);
+                let (lead, trail, separator) = split_area(area, *orientation, *ratio);
                 first.layout(lead, out);
                 second.layout(trail, out);
                 if let Some(separator) = separator {
@@ -243,6 +274,12 @@ impl SplitTree {
         self.root.remove(focus).or_else(|| self.root.first_leaf())
     }
 
+    /// Grows (positive delta) or shrinks the focused pane by percentage points,
+    /// adjusting its nearest enclosing split and clamping the ratio.
+    pub fn resize(&mut self, focus: usize, delta: i16) -> bool {
+        self.root.resize(focus, delta)
+    }
+
     /// Computes pane rectangles and separators for an area.
     pub fn layout(&self, area: Rect) -> Layout {
         let mut out = Layout::default();
@@ -251,13 +288,13 @@ impl SplitTree {
     }
 }
 
-fn split_area(area: Rect, orientation: Orientation) -> (Rect, Rect, Option<Segment>) {
+fn split_area(area: Rect, orientation: Orientation, ratio: u8) -> (Rect, Rect, Option<Segment>) {
     let total = match orientation {
         Orientation::Stacked => area.height,
         Orientation::SideBySide => area.width,
     };
-    let slots = spans(total, 2);
-    let [lead, trail] = slots.as_slice() else {
+    let usable = total.saturating_sub(1);
+    if usable < 2 {
         // Too small for a separator: halve without a gap.
         let half = total / 2;
         return (
@@ -265,24 +302,31 @@ fn split_area(area: Rect, orientation: Orientation) -> (Rect, Rect, Option<Segme
             shrink(area, orientation, half, total - half),
             None,
         );
+    }
+    let lead_size = (usable * usize::from(ratio) + 50) / 100;
+    let lead_size = lead_size.clamp(1, usable - 1);
+    let trail_size = usable - lead_size;
+    let separator_position = match orientation {
+        Orientation::Stacked => area.y + lead_size,
+        Orientation::SideBySide => area.x + lead_size,
     };
     let separator = match orientation {
         Orientation::Stacked => Segment {
             orientation,
             x: area.x,
-            y: area.y + lead.start + lead.size,
+            y: separator_position,
             length: area.width,
         },
         Orientation::SideBySide => Segment {
             orientation,
-            x: area.x + lead.start + lead.size,
+            x: separator_position,
             y: area.y,
             length: area.height,
         },
     };
     (
-        shrink(area, orientation, lead.start, lead.size),
-        shrink(area, orientation, trail.start, trail.size),
+        shrink(area, orientation, 0, lead_size),
+        shrink(area, orientation, lead_size + 1, trail_size),
         Some(separator),
     )
 }
@@ -476,5 +520,47 @@ mod tests {
         assert_eq!(Orientation::Stacked.toggled(), Orientation::SideBySide);
         assert_eq!(Orientation::SideBySide.toggled(), Orientation::Stacked);
         assert_eq!(Orientation::SideBySide.label(), "right");
+    }
+
+    #[test]
+    fn resizing_moves_the_nearest_separator() {
+        let mut tree = SplitTree::new(1);
+        tree.split(1, 2, Orientation::Stacked);
+        let before = tree.layout(area());
+        assert_eq!(before.panes[0].1.height, 10);
+
+        assert!(tree.resize(1, 10));
+        let grown = tree.layout(area());
+        assert_eq!(grown.panes[0].1.height, 11);
+        assert_eq!(grown.panes[1].1.height, 8);
+        assert_eq!(grown.separators[0].y, 11);
+
+        assert!(tree.resize(2, 10));
+        let shrunk = tree.layout(area());
+        assert_eq!(shrunk.panes[0].1.height, 10);
+        assert_eq!(shrunk.panes[1].1.height, 9);
+    }
+
+    #[test]
+    fn resizing_clamps_and_ignores_unknown_panes() {
+        let mut tree = SplitTree::new(1);
+        tree.split(1, 2, Orientation::SideBySide);
+        for _ in 0..20 {
+            tree.resize(1, 10);
+        }
+        assert_eq!(tree.layout(area()).panes[0].1.width, 71);
+        assert!(!tree.resize(99, 10));
+    }
+
+    #[test]
+    fn nested_resize_uses_the_closest_split() {
+        let mut tree = SplitTree::new(1);
+        tree.split(1, 2, Orientation::Stacked);
+        tree.split(2, 3, Orientation::SideBySide);
+        assert!(tree.resize(3, 10));
+        let layout = tree.layout(area());
+        assert_eq!(layout.panes[1].1.width, 32);
+        assert_eq!(layout.panes[2].1.width, 47);
+        assert_eq!(layout.separators[0].x, 32);
     }
 }

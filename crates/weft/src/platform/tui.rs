@@ -66,13 +66,15 @@ enum Command {
     SplitRight,
     NextPane,
     ClosePane,
+    GrowPane,
+    ShrinkPane,
     CycleTheme,
     ClearScreen,
     ResetTerminal,
     Quit,
 }
 
-const PALETTE: [(&str, Command); 11] = [
+const PALETTE: [(&str, Command); 13] = [
     ("New tab", Command::NewTab),
     ("Next tab", Command::NextTab),
     ("Close tab", Command::CloseTab),
@@ -80,6 +82,8 @@ const PALETTE: [(&str, Command); 11] = [
     ("Split right", Command::SplitRight),
     ("Next pane", Command::NextPane),
     ("Close pane", Command::ClosePane),
+    ("Grow pane", Command::GrowPane),
+    ("Shrink pane", Command::ShrinkPane),
     ("Cycle theme (dark/light)", Command::CycleTheme),
     ("Clear screen", Command::ClearScreen),
     ("Reset terminal", Command::ResetTerminal),
@@ -494,6 +498,19 @@ fn apply(
             tab.panes.retain(|found| found.id != pane);
             tab.focus = next;
             resize_tab(tab, dimensions);
+        }
+        Command::GrowPane | Command::ShrinkPane => {
+            let delta = if matches!(command, Command::GrowPane) {
+                5
+            } else {
+                -5
+            };
+            let tab = &mut tabs[*active_tab];
+            if tab.tree.resize(tab.focus, delta) {
+                resize_tab(tab, dimensions);
+            } else {
+                *notice = "no split to resize".to_owned();
+            }
         }
         Command::CycleTheme => {
             *theme = if theme.name == theme::LIGHT.name {
