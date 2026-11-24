@@ -2,11 +2,17 @@
 resolver = "3"
 members = [
     "crates/weft",
+    "crates/weft-agent",
     "crates/weft-config",
     "crates/weft-store",
     "crates/weft-term",
 ]
-default-members = ["crates/weft", "crates/weft-term", "crates/weft-store"]
+default-members = [
+    "crates/weft",
+    "crates/weft-agent",
+    "crates/weft-store",
+    "crates/weft-term",
+]
 
 [workspace.package]
 version = "0.0.0"

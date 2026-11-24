@@ -173,6 +173,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "weft-agent"
+version = "0.0.0"
+
+[[package]]
 name = "weft-config"
 version = "0.0.0"
 dependencies = [
