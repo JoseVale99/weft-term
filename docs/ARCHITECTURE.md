@@ -152,10 +152,14 @@ M3.
 - `weft-store` persiste historial y sesiones con líneas escapadas y escritura
   atómica. No usa base de datos todavía.
 - `weft-agent` implementa conversación acotada, parser JSON estricto, petición
-  OpenAI con streaming y lectura SSE, además de la compuerta de aprobación. Su
+  OpenAI con streaming y lectura SSE, compuerta de aprobación, herramientas con
+  sandbox de rutas y un ciclo acotado que devuelve los resultados al modelo. Su
   transporte HTTP plano vive en `weft`; HTTPS requiere una decisión de
   dependencias (TLS) y hoy se rechaza con un mensaje explícito.
 - `weft workflow` lista y ejecuta comandos guardados con `{{parámetro}}`.
-- La ventana GPU, las pestañas, los splits y ConPTY siguen pendientes. La
-  primera requiere red para `winit`/`wgpu`/`glyphon`; ConPTY requiere las
-  dependencias de Windows.
+- El front-end Unix tiene temas propios (`weft-dark`, `weft-light`), paleta de
+  comandos en F1 y pestañas con una sesión PTY independiente por pestaña. La
+  paleta crea, cambia y cierra pestañas.
+- La ventana GPU, los splits y ConPTY siguen pendientes. La primera requiere red
+  para `winit`/`wgpu`/`glyphon`; ConPTY requiere las dependencias de Windows, y
+  Windows sigue usando el shell de bloques.
