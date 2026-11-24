@@ -636,9 +636,17 @@ mod windows_glue {
     fn open_pipe() -> io::Result<(StdHandle, StdHandle)> {
         let mut read = std::ptr::null_mut();
         let mut write = std::ptr::null_mut();
-        // SAFETY: two caller-owned handle slots; NULL security attributes mean
-        // the default, non-inheritable handles, which is what we want.
-        if unsafe { CreatePipe(&mut read, &mut write, std::ptr::null(), 0) } == 0 {
+        // The console host is a separate process that receives these ends by
+        // inheritance. Non-inheritable handles leave the client attached to a
+        // console whose pipes never reach the host, and it dies in its loader
+        // with STATUS_DLL_INIT_FAILED (0xc0000142) before running anything.
+        let attributes = SecurityAttributes {
+            length: std::mem::size_of::<SecurityAttributes>() as u32,
+            descriptor: std::ptr::null_mut(),
+            inherit: 1,
+        };
+        // SAFETY: two caller-owned handle slots and a valid attributes block.
+        if unsafe { CreatePipe(&mut read, &mut write, &attributes, 0) } == 0 {
             return Err(io::Error::last_os_error());
         }
         Ok((read, write))
