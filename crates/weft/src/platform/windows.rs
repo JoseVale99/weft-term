@@ -1,23 +1,18 @@
-//! Windows glue.
-//!
-//! Raw mode needs a console handle and ConPTY is not wired yet, so the block
-//! shell stays available and the full-screen front-end is refused. Both limits
-//! are explicit instead of a silent fallback.
+//! Windows glue: `COMSPEC`, console raw mode, ConPTY window size and the
+//! full-screen GPU/TUI front-ends.
 
 use std::env;
 use std::io;
 use std::process::Command;
 
-/// No-op guard: Windows has no raw mode here yet.
-#[derive(Debug)]
-pub struct RawInput;
+use weft_term::sys;
 
-/// Raw mode is not available; the caller falls back to line input.
+/// Guard that restores the console modes when dropped.
+pub type RawInput = sys::RawMode;
+
+/// Puts the console into raw input mode and enables VT output.
 pub fn enter_raw() -> io::Result<RawInput> {
-    Err(io::Error::new(
-        io::ErrorKind::Unsupported,
-        "raw input requires a console and is not implemented on Windows yet",
-    ))
+    sys::RawMode::enable()
 }
 
 /// Builds the command used to run a shell line.
@@ -30,6 +25,11 @@ pub fn command(line: &str) -> Command {
 /// The user's home directory, or `.` when it cannot be determined.
 pub fn home() -> String {
     env::var("USERPROFILE").unwrap_or_else(|_| ".".to_owned())
+}
+
+/// Size of the console output buffer, in `(columns, rows)`.
+pub fn window_size() -> io::Result<(usize, usize)> {
+    sys::window_size()
 }
 
 /// Width of the terminal, or 80 columns when it cannot be measured.
