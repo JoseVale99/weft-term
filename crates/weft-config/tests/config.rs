@@ -87,6 +87,11 @@ fn saving_and_loading_round_trips_every_field() {
             base_url: Some("https://example.test/v1".to_owned()),
             auto_approve: true,
         },
+        workflows: vec![weft_config::Workflow {
+            name: "build".to_owned(),
+            description: "compile everything".to_owned(),
+            command: "cargo build {{profile}}".to_owned(),
+        }],
     };
 
     config.save(&path).expect("save must succeed");
@@ -113,4 +118,78 @@ fn saving_replaces_the_previous_file_atomically() {
 
     assert_eq!(Config::load(&path).unwrap().terminal.scrollback, 2_000);
     assert!(!path.with_extension("toml.tmp").exists());
+}
+
+#[test]
+fn workflows_load_with_parameters() {
+    let path = temporary("workflows");
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(
+        &path,
+        "[[workflows]]\nname = \"greet\"\ndescription = \"say hi\"\ncommand = \"echo {{who}} {{who}}\"\n",
+    )
+    .unwrap();
+
+    let config = Config::load(&path).expect("workflow must load");
+    let workflow = &config.workflows[0];
+    assert_eq!(workflow.name, "greet");
+    assert_eq!(workflow.placeholders(), ["who"]);
+    assert_eq!(
+        workflow.expand(&[("who", "world")]).unwrap(),
+        "echo world world"
+    );
+}
+
+#[test]
+fn a_missing_parameter_is_an_error() {
+    let mut config = Config::default();
+    config.workflows.push(weft_config::Workflow {
+        name: "deploy".to_owned(),
+        description: String::new(),
+        command: "deploy {{target}}".to_owned(),
+    });
+    config.validate().unwrap();
+
+    match config.workflows[0].expand(&[]) {
+        Err(Error::MissingParameter {
+            workflow,
+            parameter,
+        }) => {
+            assert_eq!(workflow, "deploy");
+            assert_eq!(parameter, "target");
+        }
+        other => panic!("expected a missing parameter error, got {other:?}"),
+    }
+}
+
+#[test]
+fn duplicate_workflow_names_are_rejected() {
+    let mut config = Config::default();
+    for _ in 0..2 {
+        config.workflows.push(weft_config::Workflow {
+            name: "build".to_owned(),
+            description: String::new(),
+            command: "cargo build".to_owned(),
+        });
+    }
+
+    match config.validate() {
+        Err(Error::Invalid { field, .. }) => assert_eq!(field, "workflows"),
+        other => panic!("expected an invalid workflow error, got {other:?}"),
+    }
+}
+
+#[test]
+fn a_workflow_without_a_command_is_rejected() {
+    let mut config = Config::default();
+    config.workflows.push(weft_config::Workflow {
+        name: "empty".to_owned(),
+        description: String::new(),
+        command: "   ".to_owned(),
+    });
+
+    match config.validate() {
+        Err(Error::Invalid { field, .. }) => assert_eq!(field, "workflows"),
+        other => panic!("expected an invalid workflow error, got {other:?}"),
+    }
 }

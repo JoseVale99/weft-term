@@ -16,8 +16,10 @@ mod repl;
 
 use std::env;
 use std::io;
+use std::path::PathBuf;
 use std::process::ExitCode;
 
+use weft_config::Config;
 use weft_store::Store;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -31,6 +33,7 @@ fn main() -> ExitCode {
         Some("integration") => integration(&args[1..]),
         Some("history") => history(&args[1..]),
         Some("sessions") => sessions(&args[1..]),
+        Some("workflow" | "workflows") => workflow(&args[1..]),
         Some("help" | "--help" | "-h") => {
             print_help();
             Ok(())
@@ -94,6 +97,65 @@ fn integration(args: &[String]) -> io::Result<()> {
     Ok(())
 }
 
+fn config_path() -> PathBuf {
+    if let Some(path) = env::var_os("WEFT_CONFIG") {
+        return PathBuf::from(path);
+    }
+    Store::open_default().map_or_else(
+        |_| PathBuf::from("weft.toml"),
+        |store| store.root().join("config.toml"),
+    )
+}
+
+fn workflow(args: &[String]) -> io::Result<()> {
+    let config = Config::load(config_path()).map_err(io::Error::other)?;
+    match args.first().map(String::as_str) {
+        None | Some("list") => {
+            if config.workflows.is_empty() {
+                println!("weft: no workflows in {}", config_path().display());
+            }
+            for entry in &config.workflows {
+                let params = entry.placeholders();
+                let suffix = if params.is_empty() {
+                    String::new()
+                } else {
+                    format!(" [{}]", params.join(", "))
+                };
+                println!("{}{suffix}\t{}", entry.name, entry.description);
+            }
+        }
+        Some("run") => {
+            let Some(name) = args.get(1) else {
+                eprintln!("usage: weft workflow run <name> [key=value ...]");
+                return Ok(());
+            };
+            let Some(entry) = config.workflows.iter().find(|entry| entry.name == *name) else {
+                eprintln!("weft: unknown workflow `{name}`");
+                return Ok(());
+            };
+            let mut owned = Vec::new();
+            for argument in &args[2..] {
+                let Some((key, value)) = argument.split_once('=') else {
+                    eprintln!("weft: expected key=value, got `{argument}`");
+                    return Ok(());
+                };
+                owned.push((key.to_owned(), value.to_owned()));
+            }
+            let values: Vec<(&str, &str)> = owned
+                .iter()
+                .map(|(key, value)| (key.as_str(), value.as_str()))
+                .collect();
+            let command = entry.expand(&values).map_err(io::Error::other)?;
+            let block = repl::execute(&command)?;
+            if block.code != 0 {
+                std::process::exit(block.code);
+            }
+        }
+        Some(other) => eprintln!("weft: unknown workflow action `{other}` (list, run)"),
+    }
+    Ok(())
+}
+
 fn history(args: &[String]) -> io::Result<()> {
     let store = Store::open_default()?;
     match args.first().map(String::as_str) {
@@ -145,12 +207,15 @@ Usage:
   weft integration <sh> print integration for bash, zsh or fish
   weft history [clear]  list or clear the persistent command history
   weft sessions [clear] list or clear the session log
+  weft workflow list   list saved workflows
+  weft workflow run <name> [key=value ...]  run a saved workflow
   weft help             this message
   weft --version        version
 
 Environment:
   SHELL                 shell started by the interactive terminal
   WEFT_DATA_DIR         override the directory for history and sessions
+  WEFT_CONFIG           configuration file (default: data dir/config.toml)
   RUST_LOG              log filter for internal diagnostics"
     );
 }

@@ -167,6 +167,8 @@ checksum = "c6f5d3c3b1bf09027a88a6bc961fc00497d651009560b5463668dc81b0fa87a8"
 name = "weft"
 version = "0.0.0"
 dependencies = [
+ "weft-config",
+ "weft-store",
  "weft-term",
 ]
 
@@ -178,6 +180,10 @@ dependencies = [
  "thiserror",
  "toml",
 ]
+
+[[package]]
+name = "weft-store"
+version = "0.0.0"
 
 [[package]]
 name = "weft-term"
