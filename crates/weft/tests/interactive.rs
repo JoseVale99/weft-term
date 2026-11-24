@@ -70,3 +70,63 @@ fn interactive_terminal_runs_a_command_and_exits() {
     }
     assert!(exited, "terminal did not close after `exit`");
 }
+
+#[test]
+fn the_palette_opens_a_second_tab() {
+    let mut session =
+        Session::spawn(env!("CARGO_BIN_EXE_weft"), &[], 80, 24).expect("start weft");
+
+    let mut master = session.try_clone_master().expect("clone master");
+    let (sender, receiver) = mpsc::channel();
+    thread::spawn(move || {
+        let mut buffer = [0u8; 8192];
+        loop {
+            match master.read(&mut buffer) {
+                Ok(0) | Err(_) => return,
+                Ok(count) => {
+                    if sender.send(buffer[..count].to_vec()).is_err() {
+                        return;
+                    }
+                }
+            }
+        }
+    });
+
+    let mut output = String::new();
+    collect(&receiver, &mut output, Duration::from_secs(2));
+
+    // F1 opens the palette; the first entry is "New tab".
+    session.write(b"\x1bOP").expect("open palette");
+    thread::sleep(Duration::from_millis(300));
+    session.write(b"\r").expect("choose new tab");
+    thread::sleep(Duration::from_millis(500));
+
+    session
+        .write(b"printf '\\x34\\x33-tab\\n'\r")
+        .expect("write command");
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let mut seen = false;
+    while Instant::now() < deadline && !seen {
+        collect(&receiver, &mut output, Duration::from_millis(200));
+        seen = output.contains("43-tab");
+    }
+    assert!(seen, "command did not run in the new tab; terminal said:\n{output}");
+
+    thread::sleep(Duration::from_millis(500));
+
+    // Close the new tab, then the original one.
+    session.write(b"exit\r").expect("exit new tab");
+    thread::sleep(Duration::from_millis(500));
+    session.write(b"exit\r").expect("exit first tab");
+
+    let mut exited = false;
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while Instant::now() < deadline {
+        if matches!(session.try_wait(), Ok(Some(_))) {
+            exited = true;
+            break;
+        }
+        thread::sleep(Duration::from_millis(50));
+    }
+    assert!(exited, "both tabs did not close; terminal said:\n{output}");
+}
