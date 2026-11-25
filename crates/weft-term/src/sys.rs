@@ -325,6 +325,10 @@ mod windows_glue {
     pub const WAIT_OBJECT_0: u32 = 0;
     pub const ERROR_INSUFFICIENT_BUFFER: i32 = 122;
     pub const EXTENDED_STARTUPINFO_PRESENT: u32 = 0x0008_0000;
+    /// Set when `StartupInfoW::std_*` carry the child's standard handles.
+    pub const STARTF_USESTDHANDLES: u32 = 0x0000_0100;
+    /// The handle value Windows documents as "no handle".
+    pub const INVALID_HANDLE_VALUE: StdHandle = -1isize as StdHandle;
     pub const PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE: usize = 0x0002_0016;
     pub const INFINITE: u32 = 0xFFFF_FFFF;
 
@@ -422,8 +426,8 @@ mod windows_glue {
     /// An open pseudo console. Closes itself on drop.
     pub struct Conpty {
         hpc: HPCON,
-        // The console keeps using the ends it was opened with until a client
-        // attaches, so they stay alive with it instead of being closed early.
+        // The console-side ends. They are released once a client is attached,
+        // as the documentation requires, so they are owned here until then.
         input_read: StdHandle,
         output_write: StdHandle,
     }
@@ -460,9 +464,8 @@ mod windows_glue {
                     "CreatePseudoConsole failed with HRESULT {status:#x}"
                 )));
             }
-            // The console may not have taken its ends over until a client
-            // attaches, so they live and die with it instead of being closed
-            // here: closing them early leaves the child writing to nothing.
+            // The console holds its own references to these ends; the host's
+            // copies are released once a client attaches, in `spawn`.
             Ok((
                 Self {
                     hpc,
@@ -491,7 +494,7 @@ mod windows_glue {
         }
 
         /// Spawns a child attached to this console. Returns the process handle.
-        pub fn spawn(&self, command_line: &[u16]) -> io::Result<StdHandle> {
+        pub fn spawn(&mut self, command_line: &[u16]) -> io::Result<StdHandle> {
             let mut list_size = 0usize;
             // SAFETY: a NULL list only asks for the required size.
             let measured = unsafe {
@@ -578,10 +581,15 @@ mod windows_glue {
                 return Err(error);
             }
             // SAFETY: the list was initialized by this call and is not used
-            // again; the thread handle is owned and closed here.
+            // again. The thread handle and the host's copies of the console
+            // ends are owned and closed here: the console has its own by now,
+            // and keeping these open would hide the end-of-stream the reader
+            // waits for when the child exits.
             unsafe {
                 DeleteProcThreadAttributeList(list);
                 CloseHandle(information.thread);
+                CloseHandle(std::mem::take(&mut self.input_read));
+                CloseHandle(std::mem::take(&mut self.output_write));
             }
             Ok(information.process)
         }
@@ -619,12 +627,15 @@ mod windows_glue {
 
     impl Drop for Conpty {
         fn drop(&mut self) {
-            // SAFETY: the console and the ends it was opened with are owned
+            // SAFETY: the console and any ends still owned here are owned
             // exactly once, and the closed console no longer uses them.
             unsafe {
                 ClosePseudoConsole(self.hpc);
-                CloseHandle(self.input_read);
-                CloseHandle(self.output_write);
+                for handle in [self.input_read, self.output_write] {
+                    if !handle.is_null() {
+                        CloseHandle(handle);
+                    }
+                }
             }
         }
     }
@@ -632,8 +643,8 @@ mod windows_glue {
     fn open_pipe() -> io::Result<(StdHandle, StdHandle)> {
         let mut read = std::ptr::null_mut();
         let mut write = std::ptr::null_mut();
-        // `CreatePseudoConsole` duplicates these ends into the console host with
-        // inheritance enabled, so they stay private to this process here.
+        // `CreatePseudoConsole` takes its own references to these ends, so the
+        // handles stay private to this process instead of being inherited.
         // SAFETY: two caller-owned handle slots; NULL attributes mean the
         // default, non-inheritable handles.
         if unsafe { CreatePipe(&mut read, &mut write, std::ptr::null(), 0) } == 0 {
@@ -661,13 +672,19 @@ mod windows_glue {
             x_count_chars: 0,
             y_count_chars: 0,
             fill_attribute: 0,
-            flags: 0,
+            // The three invalid handles stop the client from inheriting this
+            // process's stdout and stderr. In CI those are the runner's pipes,
+            // so the shell would write there instead of into the pseudo
+            // console and the host would only ever see the console's own
+            // start-up sequences. The console subsystem replaces the invalid
+            // values with the handles the pseudo console hands out.
+            flags: STARTF_USESTDHANDLES,
             show_window: 0,
             reserved2: 0,
             reserved3: std::ptr::null_mut(),
-            std_input: std::ptr::null_mut(),
-            std_output: std::ptr::null_mut(),
-            std_error: std::ptr::null_mut(),
+            std_input: INVALID_HANDLE_VALUE,
+            std_output: INVALID_HANDLE_VALUE,
+            std_error: INVALID_HANDLE_VALUE,
         }
     }
 }

@@ -17,7 +17,8 @@ pub struct Session {
     input: File,
     output: File,
     conpty: Conpty,
-    process: *mut core::ffi::c_void,
+    // Taken when the session ends, so the handle is closed exactly once.
+    process: Option<*mut core::ffi::c_void>,
 }
 
 // SAFETY: the process handle is an opaque kernel object used only through its
@@ -38,7 +39,7 @@ fn exit_status(code: u32) -> ExitStatus {
 impl Session {
     /// Spawns `program` with `args` attached to a new pseudo console.
     pub fn spawn(program: &str, args: &[&str], cols: usize, rows: usize) -> io::Result<Self> {
-        let (conpty, input, output) = Conpty::open(cols, rows)?;
+        let (mut conpty, input, output) = Conpty::open(cols, rows)?;
 
         // A single wide command line, Windows style.
         let mut command_line: Vec<u16> = Vec::new();
@@ -54,7 +55,7 @@ impl Session {
             input,
             output,
             conpty,
-            process,
+            process: Some(process),
         })
     }
 
@@ -81,18 +82,24 @@ impl Session {
 
     /// Non-blocking check for the child's exit status.
     pub fn try_wait(&mut self) -> io::Result<Option<ExitStatus>> {
-        Ok(self.conpty.try_wait(self.process)?.map(exit_status))
+        let Some(process) = self.process else {
+            return Ok(None);
+        };
+        Ok(self.conpty.try_wait(process)?.map(exit_status))
     }
 
-    /// Terminates the child shell.
+    /// Terminates the child shell. Safe to call more than once: the first call
+    /// releases the handle and later ones do nothing.
     pub fn kill(&mut self) {
-        self.conpty.kill(self.process);
+        if let Some(process) = self.process.take() {
+            self.conpty.kill(process);
+        }
     }
 }
 
 impl Drop for Session {
     fn drop(&mut self) {
-        self.conpty.kill(self.process);
+        self.kill();
     }
 }
 
@@ -137,32 +144,64 @@ mod tests {
         });
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
         let mut output = Vec::new();
-        while let Some(left) = deadline.checked_duration_since(std::time::Instant::now()) {
-            match receiver.recv_timeout(left) {
+        let mut exit = None;
+        loop {
+            let Some(left) = deadline.checked_duration_since(std::time::Instant::now()) else {
+                break;
+            };
+            // Poll in short slices so a child that dies without writing
+            // anything fails the test at once instead of waiting out the
+            // whole deadline.
+            let slice = left.min(std::time::Duration::from_millis(100));
+            match receiver.recv_timeout(slice) {
                 Ok(chunk) => {
                     output.extend_from_slice(&chunk);
                     if String::from_utf8_lossy(&output).contains("conpty-ok") {
                         break;
                     }
                 }
-                Err(_) => break,
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                    if exit.is_none() {
+                        exit = session.try_wait().expect("try_wait");
+                    }
+                    if exit.is_some() {
+                        break;
+                    }
+                }
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
             }
         }
         let output = String::from_utf8_lossy(&output).into_owned();
         assert!(
             output.contains("conpty-ok"),
-            "output was {output:?} (child exit: {:?})",
-            session.try_wait().ok().flatten()
+            "output was {output:?} (child {})",
+            describe(exit.or_else(|| session.try_wait().ok().flatten()))
         );
-        let mut exit = None;
+        let exit = exit.unwrap_or_else(|| wait_for_exit(&mut session));
+        assert_eq!(exit.code(), Some(0), "cmd.exe failed");
+    }
+
+    /// Child state for failure messages, with the code in hex as the Windows
+    /// documentation spells it.
+    fn describe(status: Option<ExitStatus>) -> String {
+        status.map_or_else(
+            || "still running".to_string(),
+            |status| match status.code() {
+                Some(code) => format!("exit code {code:#010x}"),
+                None => format!("status {status:?}"),
+            },
+        )
+    }
+
+    /// Waits for the child to finish, failing the test if it never does.
+    fn wait_for_exit(session: &mut Session) -> ExitStatus {
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
         while std::time::Instant::now() < deadline {
             if let Some(status) = session.try_wait().expect("try_wait") {
-                exit = Some(status);
-                break;
+                return status;
             }
             std::thread::sleep(std::time::Duration::from_millis(50));
         }
-        assert!(exit.is_some(), "cmd.exe did not exit");
+        panic!("cmd.exe did not exit");
     }
 }
