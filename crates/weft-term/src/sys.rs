@@ -561,13 +561,17 @@ mod windows_glue {
             // SAFETY: every pointer is valid or null; the wide command line is
             // mutable as the API may write; the startup struct is extended, so
             // the flag is set and the `size` field already says `StartupInfoExW`.
+            // The console hands the client its standard handles at creation,
+            // so they must be inheritable: with inheritance off the client
+            // starts and dies in its loader with STATUS_DLL_INIT_FAILED
+            // (0xc0000142) before running a single line of the command.
             let spawned = unsafe {
                 CreateProcessW(
                     std::ptr::null(),
                     command_line.as_mut_ptr(),
                     std::ptr::null(),
                     std::ptr::null(),
-                    0,
+                    1,
                     EXTENDED_STARTUPINFO_PRESENT,
                     std::ptr::null(),
                     std::ptr::null(),
