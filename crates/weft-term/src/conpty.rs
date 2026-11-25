@@ -142,16 +142,15 @@ mod tests {
                 }
             }
         });
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        // The deadline shrinks once the child dies: its last bytes may still be
+        // in the pipe, so the reader gets a brief window before the test gives
+        // up instead of waiting out the whole ten seconds.
+        let mut drain = std::time::Instant::now() + std::time::Duration::from_secs(10);
         let mut output = Vec::new();
         let mut exit = None;
-        loop {
-            let Some(left) = deadline.checked_duration_since(std::time::Instant::now()) else {
-                break;
-            };
+        while let Some(left) = drain.checked_duration_since(std::time::Instant::now()) {
             // Poll in short slices so a child that dies without writing
-            // anything fails the test at once instead of waiting out the
-            // whole deadline.
+            // anything fails the test at once.
             let slice = left.min(std::time::Duration::from_millis(100));
             match receiver.recv_timeout(slice) {
                 Ok(chunk) => {
@@ -163,9 +162,10 @@ mod tests {
                 Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
                     if exit.is_none() {
                         exit = session.try_wait().expect("try_wait");
-                    }
-                    if exit.is_some() {
-                        break;
+                        if exit.is_some() {
+                            drain =
+                                std::time::Instant::now() + std::time::Duration::from_millis(500);
+                        }
                     }
                 }
                 Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
