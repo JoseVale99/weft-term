@@ -334,14 +334,6 @@ mod windows_glue {
     pub struct HPCON(*mut core::ffi::c_void);
 
     #[repr(C)]
-    #[derive(Clone, Copy, Default)]
-    struct SecurityAttributes {
-        length: u32,
-        descriptor: *mut core::ffi::c_void,
-        inherit: Bool,
-    }
-
-    #[repr(C)]
     struct StartupInfoW {
         size: u32,
         reserved: *mut u16,
@@ -381,7 +373,7 @@ mod windows_glue {
         fn CreatePipe(
             read: *mut StdHandle,
             write: *mut StdHandle,
-            attributes: *const SecurityAttributes,
+            attributes: *const core::ffi::c_void,
             size: u32,
         ) -> Bool;
         fn CreatePseudoConsole(
@@ -412,8 +404,8 @@ mod windows_glue {
         fn CreateProcessW(
             application: *const u16,
             command_line: *mut u16,
-            process_attributes: *const SecurityAttributes,
-            thread_attributes: *const SecurityAttributes,
+            process_attributes: *const core::ffi::c_void,
+            thread_attributes: *const core::ffi::c_void,
             inherit: Bool,
             flags: u32,
             environment: *const core::ffi::c_void,
@@ -526,15 +518,17 @@ mod windows_glue {
             if unsafe { InitializeProcThreadAttributeList(list, 1, 0, &mut list_size) } == 0 {
                 return Err(io::Error::last_os_error());
             }
-            // SAFETY: the attribute value is the console pointer, of pointer
-            // size, owned for as long as the list lives.
-            let mut hpc = self.hpc;
+            // SAFETY: this attribute takes the pseudo-console handle itself as
+            // the value, not a pointer to it. Passing the address of a local
+            // hands the child an invalid handle, and it dies in its loader with
+            // STATUS_DLL_INIT_FAILED (0xc0000142) before running anything.
+            let hpc = self.hpc;
             if unsafe {
                 UpdateProcThreadAttribute(
                     list,
                     0,
                     PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE,
-                    (&mut hpc as *mut HPCON).cast(),
+                    hpc.0,
                     std::mem::size_of::<HPCON>(),
                     std::ptr::null_mut(),
                     std::ptr::null_mut(),
@@ -561,17 +555,15 @@ mod windows_glue {
             // SAFETY: every pointer is valid or null; the wide command line is
             // mutable as the API may write; the startup struct is extended, so
             // the flag is set and the `size` field already says `StartupInfoExW`.
-            // The console hands the client its standard handles at creation,
-            // so they must be inheritable: with inheritance off the client
-            // starts and dies in its loader with STATUS_DLL_INIT_FAILED
-            // (0xc0000142) before running a single line of the command.
+            // The pseudo-console attribute gives the client its standard handles,
+            // so no handle inheritance is needed here.
             let spawned = unsafe {
                 CreateProcessW(
                     std::ptr::null(),
                     command_line.as_mut_ptr(),
                     std::ptr::null(),
                     std::ptr::null(),
-                    1,
+                    0,
                     EXTENDED_STARTUPINFO_PRESENT,
                     std::ptr::null(),
                     std::ptr::null(),
@@ -640,17 +632,11 @@ mod windows_glue {
     fn open_pipe() -> io::Result<(StdHandle, StdHandle)> {
         let mut read = std::ptr::null_mut();
         let mut write = std::ptr::null_mut();
-        // The console host is a separate process that receives these ends by
-        // inheritance. Non-inheritable handles leave the client attached to a
-        // console whose pipes never reach the host, and it dies in its loader
-        // with STATUS_DLL_INIT_FAILED (0xc0000142) before running anything.
-        let attributes = SecurityAttributes {
-            length: std::mem::size_of::<SecurityAttributes>() as u32,
-            descriptor: std::ptr::null_mut(),
-            inherit: 1,
-        };
-        // SAFETY: two caller-owned handle slots and a valid attributes block.
-        if unsafe { CreatePipe(&mut read, &mut write, &attributes, 0) } == 0 {
+        // `CreatePseudoConsole` duplicates these ends into the console host with
+        // inheritance enabled, so they stay private to this process here.
+        // SAFETY: two caller-owned handle slots; NULL attributes mean the
+        // default, non-inheritable handles.
+        if unsafe { CreatePipe(&mut read, &mut write, std::ptr::null(), 0) } == 0 {
             return Err(io::Error::last_os_error());
         }
         Ok((read, write))
